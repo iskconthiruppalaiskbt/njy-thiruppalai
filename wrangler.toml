@@ -2,13 +2,13 @@ name = "njy-app"
 compatibility_date = "2026-08-01"
 pages_build_output_dir = "public"
 
-# D1 database. Staging account's DB `njy` (ID below). Production uses a
-# DIFFERENT wrangler.toml (branched at push time or via env override —
-# see PRODUCTION-SETUP.md for the promote-to-prod workflow).
+# D1 database — PRODUCTION account's DB `njy`.
+# This file is what makes the `prod` branch different from `main`.
+# When merging `main` into `prod` for a release, keep these lines as-is.
 [[d1_databases]]
 binding = "DB"
 database_name = "njy"
-database_id = "ac889cea-b0ca-47f2-ac6c-c4953cb1211a"
+database_id = "69ba5e0d-b77b-4227-9c48-18f0f4166b50"
 migrations_dir = "schema"
 
 # Session secret and VAPID keys are set via `wrangler pages secret put`.
