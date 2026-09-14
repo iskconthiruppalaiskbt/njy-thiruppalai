@@ -2163,13 +2163,13 @@ async function renderHkDashboard(view) {
       el("div", { class: "cell" }, el("div", { class: "n" }, String(s.njy_coordinators)), el("div", { class: "k" }, t("hd.coordinators"))),
     );
     view.append(grid);
-    view.append(el("h2", { class: "section" }, t("hd.all_coords_title")));
-    const { coordinators } = await api("/api/leader/coordinators");
+    view.append(el("h2", { class: "section" }, t("hd.hk_leaders_list")));
+    const { leaders } = await api("/api/hk/leaders");
     if (myToken !== routeToken) return;
-    if (!coordinators.length) return view.append(el("p", { class: "hint" }, t("msg.no_coords_admin")));
+    if (!leaders || !leaders.length) return view.append(el("p", { class: "hint" }, t("msg.no_coords_admin")));
     const ul = el("ul", { class: "list" });
-    for (const c of coordinators) {
-      ul.append(el("li", {}, coordCard(c)));
+    for (const l of leaders) {
+      ul.append(el("li", {}, leaderRowCard(l)));
     }
     view.append(ul);
   } catch (err) {
