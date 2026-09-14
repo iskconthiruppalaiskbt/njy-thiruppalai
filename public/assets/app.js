@@ -3316,6 +3316,12 @@ async function renderMembers(view) {
   };
 
   // Build one section's card (header + count + table).
+  //
+  // Uses the .members-table styles in app.css — compact, sticky-header,
+  // zebra-striped, horizontally scrollable on narrow phones. Each cell
+  // carries a semantic class (.sl-cell, .name-cell, .phone-cell, …) so
+  // typography and alignment are consistent across the three sections
+  // and don't drift when a caller tweaks inline styles.
   const buildSection = (kind, titleKey, showCoordCol, showCheckbox) => {
     const state = sectionsState[kind];
     const card = el("div", { class: "card", style: "margin-bottom:.8rem;padding:0;overflow:hidden" });
@@ -3325,33 +3331,34 @@ async function renderMembers(view) {
     header.append(el("h3", { class: "section", style: "margin:0" }, t(titleKey)), countPill);
     card.append(header);
 
-    // Table
-    const table = el("table", { class: "members-table",
-      style: "width:100%;border-collapse:collapse;font-size:.88rem" });
+    // Horizontal scroll wrapper — lets narrow phones swipe sideways
+    // instead of the columns collapsing into unreadable slivers.
+    const wrap = el("div", { class: "members-table-wrap" });
+    const table = el("table", { class: "members-table" });
     const thead = el("thead");
     const trh = el("tr");
     const cols = [];
-    if (showCheckbox) cols.push({ key: "_chk", label: "" });
-    cols.push({ key: "sl",    label: t("members.col.sl") });
-    cols.push({ key: "name",  label: t("members.col.name") });
-    cols.push({ key: "phone", label: t("members.col.phone") });
-    cols.push({ key: "pin",   label: t("members.col.pincode") });
-    if (showCoordCol) cols.push({ key: "coord", label: t("members.col.assigned_coord") });
-    cols.push({ key: "_go", label: "" });
+    if (showCheckbox) cols.push({ key: "_chk", label: "", cls: "col-check" });
+    cols.push({ key: "sl",    label: t("members.col.sl"),    cls: "sl-cell" });
+    cols.push({ key: "name",  label: t("members.col.name"),  cls: "name-cell" });
+    cols.push({ key: "phone", label: t("members.col.phone"), cls: "phone-cell" });
+    cols.push({ key: "pin",   label: t("members.col.pincode"), cls: "pin-cell" });
+    if (showCoordCol) cols.push({ key: "coord", label: t("members.col.assigned_coord"), cls: "coord-cell" });
+    cols.push({ key: "_go", label: "", cls: "actions-cell" });
     for (const col of cols) {
+      const isSortable = !col.key.startsWith("_");
       const th = el("th", {
-        style: "position:sticky;top:0;background:var(--surface-sunk);text-align:left;"
-          + "padding:.45rem .6rem;border-bottom:1px solid var(--line);font-weight:600;"
-          + "cursor:" + (col.key.startsWith("_") ? "default" : "pointer"),
+        class: (col.cls || "") + (isSortable ? " sortable" : ""),
+        "data-key": col.key,
       }, col.label);
-      if (!col.key.startsWith("_")) {
+      if (isSortable) {
         th.addEventListener("click", () => {
           if (state.sortKey === col.key) state.sortDir *= -1;
           else { state.sortKey = col.key; state.sortDir = 1; }
           repaint();
         });
         if (state.sortKey === col.key) {
-          th.append(document.createTextNode(state.sortDir === 1 ? "  ▲" : "  ▼"));
+          th.append(el("span", { class: "sort-ind" }, state.sortDir === 1 ? "▲" : "▼"));
         }
       }
       trh.append(th);
@@ -3360,12 +3367,8 @@ async function renderMembers(view) {
     table.append(thead);
     const tbody = el("tbody");
     table.append(tbody);
-    card.append(table);
-    const bodyWrap = el("div", { style: "max-height:60vh;overflow:auto" });
-    // Move table into scrolling wrap. Table already appended → detach.
-    card.removeChild(table);
-    bodyWrap.append(table);
-    card.append(bodyWrap);
+    wrap.append(table);
+    card.append(wrap);
 
     const repaint = () => {
       const q = searchInput.value.trim();
@@ -3374,23 +3377,17 @@ async function renderMembers(view) {
       countPill.textContent = String(sorted.length);
       tbody.innerHTML = "";
       if (!sorted.length) {
-        const tr = el("tr");
-        tr.append(el("td", {
-          colspan: cols.length,
-          style: "padding:1rem;text-align:center;color:var(--muted)",
-        }, t("members.empty_section")));
+        const tr = el("tr", { class: "empty-row" });
+        tr.append(el("td", { colspan: cols.length }, t("members.empty_section")));
         tbody.append(tr);
       } else {
-        sorted.forEach((p, i) => {
-          const tr = el("tr", {
-            style: "cursor:pointer;background:" + (i % 2 ? "var(--surface-sunk)" : "transparent"),
-          });
+        sorted.forEach((p) => {
+          const tr = el("tr");
           tr.addEventListener("click", (ev) => {
             // Don't hijack clicks on the checkbox / drill button.
             if (ev.target.tagName === "INPUT" || ev.target.tagName === "A" || ev.target.tagName === "BUTTON") return;
             location.hash = `#/member/${encodeURIComponent(p.id)}`;
           });
-          const cellStyle = "padding:.4rem .6rem;border-bottom:1px solid var(--line)";
           if (showCheckbox) {
             const cb = el("input", { type: "checkbox" });
             if (selected.has(p.id)) cb.setAttribute("checked", "");
@@ -3399,25 +3396,35 @@ async function renderMembers(view) {
               else selected.delete(p.id);
               refreshBulkBar();
             });
-            tr.append(el("td", { style: cellStyle }, cb));
+            tr.append(el("td", { class: "col-check" }, cb));
           }
-          tr.append(el("td", { style: cellStyle + ";font-family:var(--font-mono);font-size:.82rem;color:var(--muted)" },
+          tr.append(el("td", { class: "sl-cell" },
             (p.sl_no != null && p.sl_no !== "") ? String(p.sl_no) : "—"));
-          tr.append(el("td", { style: cellStyle }, p.name || "—"));
-          const phoneCell = el("td", { style: cellStyle });
+          tr.append(el("td", { class: "name-cell" }, p.name || "—"));
+          const phoneCell = el("td", { class: "phone-cell" });
           if (p.phone) {
-            phoneCell.append(document.createTextNode(p.phone + " "));
-            phoneCell.append(wame(p.phone, "💬"));
+            phoneCell.append(document.createTextNode(p.phone));
+            const waDigits = String(p.phone).replace(/[^\d]/g, "");
+            if (waDigits) {
+              const wa = el("a", {
+                class: "wa-btn",
+                href: `https://api.whatsapp.com/send/?phone=${waDigits}`,
+                target: "_blank", rel: "noopener",
+                title: `WhatsApp: ${p.phone}`,
+                onclick: (e) => e.stopPropagation(),
+              }, "💬");
+              phoneCell.append(wa);
+            }
           } else {
             phoneCell.append(document.createTextNode("—"));
           }
           tr.append(phoneCell);
-          tr.append(el("td", { style: cellStyle }, p.pincode || "—"));
+          tr.append(el("td", { class: "pin-cell" }, p.pincode || "—"));
           if (showCoordCol) {
-            tr.append(el("td", { style: cellStyle }, p.assigned_coord_name || "—"));
+            tr.append(el("td", { class: "coord-cell" }, p.assigned_coord_name || "—"));
           }
-          tr.append(el("td", { style: cellStyle + ";text-align:right" },
-            el("a", { class: "btn", href: `#/member/${encodeURIComponent(p.id)}`,
+          tr.append(el("td", { class: "actions-cell" },
+            el("a", { class: "btn ghost", href: `#/member/${encodeURIComponent(p.id)}`,
               onclick: (e) => e.stopPropagation() }, t("btn.open"))));
           tbody.append(tr);
         });
