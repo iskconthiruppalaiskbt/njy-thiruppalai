@@ -265,6 +265,17 @@ textarea { min-height: 4rem; resize: vertical; }
 }
 .progress-line .fraction { color: var(--ink-2); font-weight: 500; }
 
+/* 3-bucket mini bars for the leader leaderboard row. Compact stack of
+   three .pbar rows with a small caption above each showing the
+   bucket label and raw value. Kept narrow so the row still shows
+   name + score + Open button on phones. */
+.leader-buckets { display: flex; flex-direction: column; gap: .3rem; }
+.leader-bucket-hd {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .5rem; margin-bottom: .1rem;
+}
+.leader-bucket .pbar { margin-top: 0; height: 6px; }
+
 /* -------------------------------------------------- topbar */
 .topbar {
   display: flex; align-items: baseline; justify-content: space-between;
@@ -275,10 +286,36 @@ textarea { min-height: 4rem; resize: vertical; }
   margin: 0; font-family: var(--font-display); color: var(--peacock-deep);
   font-size: 1.6rem; font-weight: 400; letter-spacing: .01em;
 }
-.topbar .who { display: flex; flex-direction: column; align-items: flex-end; gap: .35rem; color: var(--muted); font-size: .9rem; }
-.topbar .who-line { display: flex; gap: .5rem; align-items: baseline; }
+.topbar .who { display: flex; flex-direction: column; align-items: flex-end; gap: .35rem; color: var(--muted); font-size: .9rem; min-width: 0; }
+/* flex-wrap so labels drop to a second line instead of overflowing when
+ * a translation (or added contact pill) makes the row exceed the header
+ * width. Every child gets white-space:nowrap so labels like "Sign Out"
+ * never split mid-word ("Sign" + "Out"). */
+.topbar .who-line {
+  display: flex; gap: .5rem; align-items: baseline;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.topbar .who-line > * { white-space: nowrap; }
 .topbar .who strong { color: var(--ink-2); font-weight: 500; }
 .topbar .who a { margin-left: .3rem; }
+
+/* Persistent contact pill in top-right header. Always visible; opens
+   api.whatsapp.com/send/?phone=<digits> for the coord's leader or the
+   leader/coord's HK. Kept compact so the header doesn't wrap on mobile. */
+.topbar .who a.hdr-contact {
+  background: #25D366;
+  color: #fff;
+  padding: .15rem .5rem;
+  border-radius: 6px;
+  font-size: .72rem;
+  font-weight: 500;
+  text-decoration: none;
+  line-height: 1.4;
+  margin-left: .3rem;
+  white-space: nowrap;
+}
+.topbar .who a.hdr-contact:hover { background: #1eb257; }
 
 /* --------- floating leaderboard sidebar (desktop only) --------- */
 /* A slim always-visible panel on the right edge showing today's top
@@ -629,7 +666,129 @@ input, textarea, select {
   border: 1px solid var(--line-strong); border-radius: var(--radius-s);
   background: var(--surface); color: var(--ink);
 }
+/* Checkboxes and radios must NOT stretch to 100% — override the global
+ * width above. Otherwise a flex-row label puts a huge checkbox next to
+ * a right-crammed text label (broadcast setup, etc). */
+input[type="checkbox"], input[type="radio"] {
+  width: auto; padding: 0; margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--peacock-deep);
+  width: 1.05rem; height: 1.05rem;
+}
 input:focus, textarea:focus { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+/* -------------------------------------------------- broadcast / queue */
+.bc-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1.25rem 1.4rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  margin: 1rem 0;
+}
+.bc-card h3 {
+  margin: 0 0 .3rem;
+  font-family: var(--font-display);
+  color: var(--peacock-deep);
+  font-weight: 500;
+  font-size: 1rem;
+}
+.bc-card .bc-hint {
+  color: var(--muted);
+  font-size: .82rem;
+  margin: 0 0 .8rem;
+  line-height: 1.4;
+}
+.bc-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: .6rem;
+  padding: .5rem 0;
+  cursor: pointer;
+  font-size: .9rem;
+  border-bottom: 1px dashed var(--line);
+}
+.bc-check-row:last-of-type { border-bottom: none; }
+.bc-check-row input[type="checkbox"] { margin-top: .18rem; }
+.bc-check-row .bc-check-label { flex: 1; }
+.bc-check-row .bc-check-sub {
+  display: block;
+  font-size: .75rem;
+  color: var(--muted);
+  margin-top: .1rem;
+}
+.bc-count-line {
+  margin: .8rem 0 .3rem;
+  padding: .5rem .7rem;
+  background: var(--tint-followed, #f4ead4);
+  border-radius: 6px;
+  font-size: .85rem;
+}
+.bc-big-btn {
+  display: inline-block;
+  padding: .8rem 1.4rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  background: #25D366;
+  color: white;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(37,211,102,.3);
+  transition: transform .06s ease, box-shadow .12s ease;
+}
+.bc-big-btn:hover { box-shadow: 0 3px 10px rgba(37,211,102,.4); }
+.bc-big-btn:active { transform: translateY(1px); }
+
+/* Care-moment "Needs your attention" panel */
+.care-panel {
+  background: linear-gradient(180deg, #fff8ee, var(--surface));
+  border: 1px solid var(--mark-followed, #d4a017);
+  border-radius: 10px;
+  padding: 1rem 1.2rem;
+  margin: .8rem 0;
+}
+.care-panel h3 {
+  margin: 0 0 .5rem;
+  font-family: var(--font-display);
+  color: var(--peacock-deep);
+  font-weight: 500;
+  display: flex; align-items: center; gap: .4rem;
+  font-size: .95rem;
+}
+.care-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: .7rem;
+  align-items: center;
+  padding: .55rem 0;
+  border-bottom: 1px dashed var(--line);
+}
+.care-row:last-of-type { border-bottom: none; }
+.care-row .care-icon { font-size: 1.15rem; line-height: 1; }
+.care-row .care-name { font-weight: 500; font-size: .9rem; color: var(--ink-2); }
+.care-row .care-sub { color: var(--muted); font-size: .75rem; margin-top: .1rem; }
+.care-row .care-send {
+  padding: .35rem .8rem;
+  border-radius: 6px;
+  font-size: .8rem;
+  white-space: nowrap;
+  background: #25D366;
+  color: white;
+  text-decoration: none;
+  font-weight: 500;
+  box-shadow: 0 1px 3px rgba(37,211,102,.25);
+}
+.care-empty {
+  background: linear-gradient(180deg, var(--tint-responded, #d9f0e5), var(--tint-followed, #f4ead4));
+  border: 1px solid var(--mark-responded, #0e8f5d);
+  border-radius: 8px;
+  padding: .8rem 1rem;
+  margin: .6rem 0;
+  font-weight: 500;
+  color: var(--peacock-ink);
+}
 button.primary {
   background: var(--peacock-deep); color: white; border: none;
   padding: .65rem 1.1rem; border-radius: var(--radius-s);
@@ -740,6 +899,12 @@ a[download]:hover {
     gap: .5rem;
   }
   .topbar h1 { font-size: 1.35rem; }
+  /* On phones the role subtitle ("· NJY Group Coordinator") crowds out
+   * the Sign Out link and the language toggle — shrink the label font
+   * under 640px, hide the subtitle entirely under 480px. Name + contact
+   * pills + Sign Out are the only truly essential header items on a phone. */
+  .topbar .who { font-size: .82rem; }
+  .topbar .who-line { row-gap: .35rem; }
   .tally {
     grid-template-columns: 1fr 1fr;
     gap: .4rem;
@@ -763,6 +928,11 @@ a[download]:hover {
   h2.section { font-size: 1.05rem; }
   h3.section { font-size: 1rem; }
   .help-banner { font-size: .78rem; padding: .5rem .65rem; }
+}
+@media (max-width: 480px) {
+  #who-role { display: none; }
+  .topbar .who a.hdr-contact { font-size: .7rem; padding: .12rem .4rem; }
+  .pts-chip { font-size: .7rem; padding: .18rem .6rem; }
 }
 
 /* -------------------------------------------------- onboarding tour */
@@ -812,3 +982,76 @@ a[download]:hover {
 }
 .center .card { max-width: 22rem; width: 100%; margin: 0; }
 .center h2 { text-align: center; }
+
+/* Login topline: title on the left, tiny language toggle on the right.
+ * Kept as a pill (border + tint) so it reads as a control, not a link
+ * lost in the whitespace above the sign-in form. */
+.login-topline {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .5rem; margin-bottom: .5rem;
+}
+.login-topline h2 { margin: 0; flex: 1; }
+.login-lang {
+  font-size: .78rem; color: var(--muted);
+  text-decoration: none; white-space: nowrap;
+  padding: .2rem .45rem; border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-sunk);
+}
+.login-lang:hover { color: var(--peacock-deep); border-color: var(--peacock-deep); }
+
+/* -------------------------------------------------- My Sangha CTA */
+/* Big prominent Broadcast primary action at the top of My Sangha. Full
+ * width, brand teal, generous padding — the coord should see and tap
+ * this without hunting. Sub-line spells out what happens next. */
+.broadcast-cta {
+  display: block;
+  width: 100%;
+  margin: .75rem 0;
+  padding: 1.1rem 1.25rem;
+  background: var(--peacock-deep);
+  color: #fff;
+  text-decoration: none;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--peacock-ink);
+  transition: background .1s ease, transform .05s ease;
+}
+.broadcast-cta:hover { background: var(--peacock-ink); color: #fff; }
+.broadcast-cta:active { transform: translateY(1px); }
+.broadcast-cta-label {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+}
+.broadcast-cta-sub {
+  display: block;
+  font-size: .82rem;
+  opacity: .88;
+  margin-top: .25rem;
+  line-height: 1.35;
+}
+@media (max-width: 480px) {
+  .broadcast-cta { padding: .95rem 1rem; margin: .6rem 0; }
+  .broadcast-cta-label { font-size: 1rem; }
+  .broadcast-cta-sub { font-size: .78rem; }
+}
+
+/* Inline WhatsApp template editor card — sits directly below the
+ * Broadcast CTA. Slightly tighter than the default .card so the pair
+ * reads as one grouped unit. */
+.wa-template-card {
+  margin: .5rem 0 1rem;
+  padding: 1rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.wa-template-card h3 { margin: 0 0 .3rem; font-size: .95rem; }
+.wa-template-card textarea {
+  font-family: var(--font-ui);
+  font-size: .9rem;
+  line-height: 1.45;
+}

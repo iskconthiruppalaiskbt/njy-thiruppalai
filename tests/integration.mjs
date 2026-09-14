@@ -767,26 +767,41 @@ test("SL ranges: coord without a range assigned gets 409", async () => {
   assert.equal(r.status, 409);
 });
 
-test("WhatsApp templates: coord saves custom daily/nondaily and roll uses them", async () => {
+test("WhatsApp template: coord saves single template and roll uses it for every member", async () => {
   const { s, ppl } = await seed();
   const { cookie } = await login(s, "coord1", "test-pass-123");
   const ctx = { store: s, env: { SESSION_SECRET: SECRET } };
-  // set two templates
+  // Canonical field is `wa_template` (single template for all members).
   const save = await route(withCookie("http://x/api/me/wa-templates", cookie, {
     method: "POST", body: JSON.stringify({
-      wa_template_daily: "Daily hi {name} — how's your japa going?",
-      wa_template_nondaily: "Hi {name}, would you like to try chanting?",
+      wa_template: "Hare Krsna {name} — how's your japa going?",
     }),
   }), ctx);
   assert.equal(save.status, 200);
-  // one person daily, another chanter
+  // One person daily, another chanter — both should receive the same
+  // template now (lifecycle status no longer picks between two templates).
   await s.updatePerson(ppl[0].id, { status: "daily" }, null);
   const res = await route(withCookie("http://x/api/roll", cookie), ctx);
   const roll = (await res.json()).roll;
   const dailyRow = roll.find(r => r.id === ppl[0].id);
   const otherRow = roll.find(r => r.id === ppl[1].id);
-  assert.ok(decodeURIComponent(dailyRow.wa_url).includes("Daily hi Chanter 1"));
-  assert.ok(decodeURIComponent(otherRow.wa_url).includes("Hi Chanter 2, would you like to try chanting?"));
+  assert.ok(decodeURIComponent(dailyRow.wa_url).includes("Hare Krsna Chanter 1 — how's your japa going?"));
+  assert.ok(decodeURIComponent(otherRow.wa_url).includes("Hare Krsna Chanter 2 — how's your japa going?"));
+});
+
+test("WhatsApp template: legacy wa_template_daily field still accepted for backwards compat", async () => {
+  const { s, ppl } = await seed();
+  const { cookie } = await login(s, "coord1", "test-pass-123");
+  const ctx = { store: s, env: { SESSION_SECRET: SECRET } };
+  const save = await route(withCookie("http://x/api/me/wa-templates", cookie, {
+    method: "POST", body: JSON.stringify({
+      wa_template_daily: "Legacy hi {name}",
+    }),
+  }), ctx);
+  assert.equal(save.status, 200);
+  const res = await route(withCookie("http://x/api/roll", cookie), ctx);
+  const roll = (await res.json()).roll;
+  assert.ok(decodeURIComponent(roll[0].wa_url).includes("Legacy hi Chanter"));
 });
 
 test("whatsapp url endpoint returns wa.me link and records audit", async () => {

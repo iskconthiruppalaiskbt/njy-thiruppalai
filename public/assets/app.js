@@ -39,49 +39,60 @@ const ERROR_MESSAGES = {
   not_found: "Nothing found at this path.",
   user_not_found: "That user doesn't exist.",
   target_user_not_found: "The user you're trying to update doesn't exist.",
-  person_not_found: "That chanter doesn't exist.",
+  person_not_found: "That member doesn't exist.",
   event_not_found: "That event doesn't exist.",
   leader_not_found: "That NJY Leader doesn't exist.",
   duty_not_found: "That duty doesn't exist.",
-  not_your_roll: "That chanter belongs to a different coordinator.",
+  not_your_roll: "That member belongs to a different coordinator.",
   // Users
-  username_taken: "That username is already used — pick another.",
+  username_taken: "That username is already used, pick another.",
   missing_fields: "One or more required fields are blank.",
   bad_role: "Role must be one of: hk_leader, njy_leader, njy_coordinator, servant_leader, sector_servant, circle_servant.",
-  manager_not_found: "manager_username points to a leader that doesn't exist yet — did you import the leader row first?",
+  manager_not_found: "manager_username points to a leader that doesn't exist yet. Did you import the leader row first?",
   // Chanter import
-  duplicate_phone: "A chanter with that phone number already exists.",
-  duplicate_coupon: "A chanter with that coupon number already exists.",
+  duplicate_phone: "A member with that phone number already exists.",
+  duplicate_coupon: "A member with that coupon number already exists.",
   duplicate_sl_no: "That serial number is already used.",
   coupon_or_range_required: "Enter a coupon number, or ask HK Leader to assign your coord an sl_range.",
-  range_exhausted_or_missing: "Your assigned sl_no range is exhausted — ask HK Leader to widen it.",
+  range_exhausted_or_missing: "Your assigned sl_no range is exhausted. Ask HK Leader to widen it.",
   name_and_mobile_required: "Both name and mobile are required.",
   // Bulk
   rows_required: "The request had no rows to import.",
   bad_body: "The request body was malformed.",
   bad_status: "That status value isn't allowed.",
-  no_templates: "Nothing was changed — WhatsApp templates were empty.",
+  no_templates: "Nothing was changed. WhatsApp templates were empty.",
   bad_subscription: "Push subscription data was incomplete.",
   endpoint_required: "Push endpoint missing.",
   person_id_required: "Missing person_id.",
   group_id_required: "Missing group_id.",
   // Network / HTTP
   http_400: "The server rejected the request (400 Bad Request). Check your input.",
-  http_401: "Session expired — sign in again.",
+  http_401: "Session expired. Sign in again.",
   http_403: "You don't have permission for this action.",
   http_404: "Not found.",
   http_409: "That conflicts with existing data (usually a duplicate).",
   http_500: "The server hit an error. Try again in a minute; if it repeats, check dev console for the exact cause.",
-  http_502: "Server unreachable (bad gateway). Cloudflare may still be deploying — wait 60 seconds and retry.",
+  http_502: "Server unreachable (bad gateway). Cloudflare may still be deploying. Wait 60 seconds and retry.",
   http_503: "Server temporarily unavailable. Retry shortly.",
 };
+// Preferred lookup: the i18n dictionary. Falls back to the English
+// ERROR_MESSAGES table above (which is the source of truth for the
+// English copy), then to the raw code. This keeps every operator-visible
+// server-error sentence translatable while remaining backward-safe.
+function localizedError(code) {
+  const key = "err." + code;
+  const translated = t(key);
+  if (translated !== key) return translated;
+  return ERROR_MESSAGES[code] || null;
+}
 function humanizeError(err) {
-  if (!err) return "Something went wrong.";
-  if (typeof err === "string") return ERROR_MESSAGES[err] || err;
+  if (!err) return t("err.generic") !== "err.generic" ? t("err.generic") : "Something went wrong.";
+  if (typeof err === "string") return localizedError(err) || err;
   const code = err.body?.error || err.error || err.message || "";
-  if (ERROR_MESSAGES[code]) return ERROR_MESSAGES[code];
+  const direct = localizedError(code);
+  if (direct) return direct;
   if (err.status) {
-    const gen = ERROR_MESSAGES[`http_${err.status}`];
+    const gen = localizedError(`http_${err.status}`);
     if (gen) return `${gen} (code: ${code})`;
   }
   return code || String(err);
@@ -147,6 +158,19 @@ window.addEventListener("error", (e) => {
 
 const STATE_LABEL = ["uncontacted", "contacted", "responded"];
 const LIFECYCLE = ["chanter","daily","njy1","njy2","njy3","manjari","bv_member","dropped"];
+// Prettify lifecycle enum values for dropdown display (Plan 4: statuses
+// should read Daily, not daily). Special cases keep NJY / BV as acronyms.
+const LIFECYCLE_LABEL = {
+  chanter: "Member",
+  daily: "Daily",
+  njy1: "NJY 1",
+  njy2: "NJY 2",
+  njy3: "NJY 3",
+  manjari: "Manjari",
+  bv_member: "BV Member",
+  dropped: "Dropped",
+};
+function lifecycleLabel(s) { return LIFECYCLE_LABEL[s] || s; }
 
 // Compute the 5-color bead on the client after a mark/chant tap. The
 // server does the authoritative first render (including the 3-day-miss
@@ -165,6 +189,18 @@ function recomputeBead(r) {
 const humanRole = (r) => t("role." + r) !== "role." + r ? t("role." + r) : r;
 
 let ME = null, GATES = {};
+
+// -------------------------------------- route token (BUG 1+2) ------
+// Global monotonic token bumped by every hashchange-driven renderRoute().
+// Any render function that does `await api(...)` before painting should
+// capture `const myToken = routeToken;` at the top and, after each await,
+// bail with `if (myToken !== routeToken) return;`. This prevents an
+// earlier route's stale fetch from appending its UI onto whatever
+// screen the user has since navigated to. NOTE: the sort toggle inside
+// renderLeaderboard re-invokes renderLeaderboard(kind, rest) directly —
+// that path does NOT bump the token (only renderRoute does), so
+// intra-page re-renders still work correctly.
+let routeToken = 0;
 
 // ------------------------------------------------------------ boot ---
 let deferredInstall = null;
@@ -191,10 +227,22 @@ function showLogin() {
   $("view-app").hidden = true;
   $("view-login").hidden = false;
   // Translate login screen
-  if ($("login-title")) $("login-title").textContent = t("btn.sign_in");
+  if ($("login-title")) $("login-title").textContent = t("login.title");
   if ($("login-u-label")) $("login-u-label").textContent = t("field.username");
   if ($("login-p-label")) $("login-p-label").textContent = t("field.password");
   if ($("login-btn")) $("login-btn").textContent = t("btn.sign_in");
+  if ($("login-hint")) $("login-hint").textContent = t("login.contact_authority");
+  // Language toggle on the login card — same behaviour as the post-login
+  // header toggle: click flips to the other language, persists in
+  // localStorage, reloads. Kept on the login screen so devotees can pick
+  // Tamil BEFORE signing in.
+  const loginLang = $("login-lang-toggle");
+  if (loginLang) {
+    const cur = getLang();
+    const other = window.LANGS.find(l => l.code !== cur);
+    loginLang.textContent = "🌐 " + other.label;
+    loginLang.onclick = (e) => { e.preventDefault(); setLang(other.code); };
+  }
   // Wire the eye toggle on the login password
   const eye = $("login-eye");
   if (eye && !eye._wired) {
@@ -227,6 +275,7 @@ async function showApp() {
   $("who-role").textContent = " · " + humanRole(ME.role);
   $("logout").textContent = t("nav.sign_out");
   $("logout").onclick = async (e) => { e.preventDefault(); await api("/api/logout", { method: "POST" }); location.hash = ""; location.reload(); };
+  renderHeaderContactPills();
   // Language quick-toggle in header
   const langBtn = $("lang-toggle");
   if (langBtn) {
@@ -242,40 +291,21 @@ async function showApp() {
   maybeShowOnboardingTour();
 }
 
-// Show a 5-slide onboarding tour to a coordinator the first time they
-// sign in. Dismissal is remembered in localStorage per user id so the
-// tour never nags. They can re-run it by clearing browser storage.
+// Show a 5-slide onboarding tour to a coordinator EVERY sign-in until
+// they tap "Never Show Again". Dismissal via that button is remembered
+// in localStorage per user id so the tour never nags after opt-out. The
+// close (X)/backdrop tap dismisses this session only, without persisting.
 function maybeShowOnboardingTour() {
   if (ME.role !== "njy_coordinator") return;
-  const key = "njy-tour-done-" + ME.id;
+  const key = "njy-tour-never-" + ME.id;
   try { if (localStorage.getItem(key)) return; } catch { /* private mode */ }
 
   const slides = [
-    {
-      emoji: "🙏 🌸",
-      title: "Welcome, coordinator",
-      body: "This app helps you keep track of the chanters you talk with — who's chanted today, who needs a nudge, and how everyone's doing. It's very simple. Let's walk through the four things you'll do most.",
-    },
-    {
-      emoji: "⚪ 🟡 🟠 🟢 🔴",
-      title: "The bead beside each name",
-      body: "White = fresh (nothing marked). <strong>Tap once</strong> = you contacted them (yellow). <strong>Tap again</strong> = they responded (orange). The bead resets to white every morning. Red means a daily chanter hasn't chanted for 3+ days — needs your attention.",
-    },
-    {
-      emoji: "✓ chanted",
-      title: "The 'chant?' button",
-      body: "When someone tells you they chanted today, tap this button — it turns gold with a tick. The bead also turns green. It's disabled unless the person's status is <strong>daily</strong> (change status via the dropdown next to their name).",
-    },
-    {
-      emoji: "💬",
-      title: "WhatsApp button",
-      body: "Tap the green <strong>WhatsApp</strong> button on any row — WhatsApp opens with a Tamil + English message ready to send to that chanter. You can add a personal line before hitting send. You can also customise your default message in the Settings tab.",
-    },
-    {
-      emoji: "🪙 🏆",
-      title: "Your points and leaderboard",
-      body: "Every action earns points — chanting marks, follow-ups, event attendance. See your live points in the coin chip at the top-right. The <strong>Leaderboard</strong> tab shows how you rank. The <strong>Janmashtami</strong> tab is where you add new chanters on the big day. Tap the <strong>📅</strong> button on any row to see 14 days of chant history.",
-    },
+    { emoji: "🙏 🌸", title: t("tour.slide1_title"), body: t("tour.slide1_body") },
+    { emoji: "⚪ 🟡 🟠 🟢 🔴", title: t("tour.slide2_title"), body: t("tour.slide2_body") },
+    { emoji: "✓ " + t("btn.chanted").replace("✓ ",""), title: t("tour.slide3_title"), body: t("tour.slide3_body") },
+    { emoji: "💬", title: t("tour.slide4_title"), body: t("tour.slide4_body") },
+    { emoji: "🪙 🏆", title: t("tour.slide5_title"), body: t("tour.slide5_body") },
   ];
 
   const overlay = el("div", { class: "tour-overlay" });
@@ -284,9 +314,34 @@ function maybeShowOnboardingTour() {
   document.body.append(overlay);
 
   let i = 0;
+  const closeSession = () => { overlay.remove(); };
+  const dismissForever = () => {
+    try { localStorage.setItem(key, "1"); } catch {}
+    overlay.remove();
+  };
   const render = () => {
     const s = slides[i];
     card.innerHTML = "";
+    const actions = el("div", { class: "tour-actions", style: "display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;justify-content:space-between" });
+    // Left: Never Show Again (persistent opt-out)
+    const neverBtn = el("button", { class: "tour-skip", type: "button" }, t("btn.never_show_again"));
+    neverBtn.addEventListener("click", dismissForever);
+    // Right: back + next/got-it
+    const navRow = el("div", { style: "display:flex;gap:.4rem" });
+    if (i > 0) {
+      const backBtn = el("button", { class: "btn", type: "button" }, t("btn.tour_back"));
+      backBtn.addEventListener("click", () => { i--; render(); });
+      navRow.append(backBtn);
+    }
+    const nextBtn = el("button", { class: "primary", type: "button" },
+      i === slides.length - 1 ? t("btn.got_it") : t("btn.tour_next"));
+    nextBtn.addEventListener("click", () => {
+      if (i === slides.length - 1) closeSession();
+      else { i++; render(); }
+    });
+    navRow.append(nextBtn);
+    actions.append(neverBtn, navRow);
+
     card.append(
       el("div", { class: "tour-emoji-row" }, s.emoji),
       el("h3", {}, s.title),
@@ -294,48 +349,110 @@ function maybeShowOnboardingTour() {
       el("div", { class: "tour-progress" },
         ...slides.map((_, idx) => el("span", { class: idx === i ? "on" : "" })),
       ),
-      el("div", { class: "tour-actions" },
-        el("button", { class: "tour-skip" }, "Skip tour"),
-        el("button", { class: "primary" }, i === slides.length - 1 ? "Got it — start using" : "Next →"),
-      ),
+      actions,
     );
-    card.querySelector(".tour-skip").addEventListener("click", done);
-    card.querySelector(".primary").addEventListener("click", () => {
-      if (i === slides.length - 1) done();
-      else { i++; render(); }
-    });
-  };
-  const done = () => {
-    try { localStorage.setItem(key, "1"); } catch {}
-    overlay.remove();
   };
   render();
 }
 // Expose a way to relaunch the tour from anywhere (for testing).
 window.replayTour = () => {
-  try { localStorage.removeItem("njy-tour-done-" + ME.id); } catch {}
+  try {
+    localStorage.removeItem("njy-tour-never-" + ME.id);
+    localStorage.removeItem("njy-tour-done-" + ME.id);  // legacy key from pre-v59
+  } catch {}
   maybeShowOnboardingTour();
 };
 
-// Header points chip — small oval showing today's and overall points
-// for the signed-in coordinator. Silently ignored for other roles.
+// Header points chip — small oval showing today's and overall points.
+// Coord:   own points (existing /api/me/points).
+// Leader:  their team roll-up from /api/leaderboard/leaders/*, own row.
+// HK:      sum across every leader row (whole-install total).
 async function refreshPointsChip() {
   const chip = $("pts-chip");
   if (!chip) return;
-  if (ME.role !== "njy_coordinator") { chip.hidden = true; return; }
-  try {
-    const p = await api("/api/me/points");
-    if (!p.applicable) { chip.hidden = true; return; }
+
+  const render = (todayN, overallN, href) => {
     chip.innerHTML = "";
+    if (href) chip.setAttribute("href", href);
     chip.append(
-      t("chip.today") + " ", el("span", { class: "pts-num" }, String(p.daily || 0)),
+      t("chip.today") + " ", el("span", { class: "pts-num" }, String(todayN || 0)),
       el("span", { class: "pts-sep" }, " · "),
-      t("chip.overall") + " ", el("span", { class: "pts-num" }, String(p.overall || 0)),
+      t("chip.overall") + " ", el("span", { class: "pts-num" }, String(overallN || 0)),
     );
     chip.hidden = false;
+  };
+
+  try {
+    if (ME.role === "njy_coordinator") {
+      const p = await api("/api/me/points");
+      if (!p.applicable) { chip.hidden = true; return; }
+      render(p.daily, p.overall, "#/profile");
+      return;
+    }
+
+    if (ME.role === "njy_leader") {
+      // Own leader row on daily + overall leader boards.
+      const [daily, overall] = await Promise.all([
+        api("/api/leaderboard/leaders/daily").catch(() => ({ rows: [] })),
+        api("/api/leaderboard/leaders/overall").catch(() => ({ rows: [] })),
+      ]);
+      const dRow = (daily.rows || []).find(r => r.user_id === ME.id) || {};
+      const oRow = (overall.rows || []).find(r => r.user_id === ME.id) || {};
+      render(dRow.pts, oRow.pts, "#/leaderboard/leaders");
+      return;
+    }
+
+    if (ME.role === "hk_leader") {
+      // Roll-up: sum every leader's team on both scopes.
+      const [daily, overall] = await Promise.all([
+        api("/api/leaderboard/leaders/daily").catch(() => ({ rows: [] })),
+        api("/api/leaderboard/leaders/overall").catch(() => ({ rows: [] })),
+      ]);
+      const sum = (rows) => (rows || []).reduce((s, r) => s + (r.pts || 0), 0);
+      render(sum(daily.rows), sum(overall.rows), "#/leaderboard/leaders");
+      return;
+    }
+
+    chip.hidden = true;
   } catch (_) { chip.hidden = true; }
 }
 window.refreshPointsChip = refreshPointsChip;
+
+// Persistent header Contact pills — always visible in the top-right so
+// the user can WhatsApp their upstream contact from any page.
+//   njy_coordinator → "💬 Leader" + "💬 HK"
+//   njy_leader      → "💬 HK"
+//   hk_leader       → omitted (no upstream)
+// Reuses ME.manager_phone / ME.hk_phone (already returned by /api/me);
+// no new endpoint. Pills open api.whatsapp.com/send/?phone=<digits>
+// (same fix as CHANGE 1 — no wa.me redirect that mangles emoji).
+function renderHeaderContactPills() {
+  // Remove any previous pass (re-render on language change / role switch).
+  document.querySelectorAll(".hdr-contact").forEach(n => n.remove());
+  const line = document.querySelector(".who-line");
+  if (!line) return;
+  const logout = $("logout");
+  const pill = (label, phone) => {
+    const digits = String(phone || "").replace(/[^\d]/g, "");
+    if (!digits) return null;
+    return el("a", {
+      class: "hdr-contact",
+      href: `https://api.whatsapp.com/send/?phone=${digits}`,
+      target: "_blank", rel: "noopener",
+      title: `WhatsApp ${label}: ${phone}`,
+    }, "💬 ", label);
+  };
+  const pills = [];
+  if (ME.role === "njy_coordinator") {
+    const p1 = pill(t("pill.leader"), ME.manager_phone); if (p1) pills.push(p1);
+    const p2 = pill(t("pill.hk"), ME.hk_phone); if (p2) pills.push(p2);
+  } else if (ME.role === "njy_leader") {
+    const p = pill(t("pill.hk"), ME.hk_phone); if (p) pills.push(p);
+  }
+  // Insert before logout so the order reads: name · role | contact... | Sign out | lang
+  for (const p of pills) line.insertBefore(p, logout);
+}
+window.renderHeaderContactPills = renderHeaderContactPills;
 
 // Floating leaderboard sidebar — desktop-only, always visible while
 // scrolling. Shows today's top 3 coords + your own rank if you're
@@ -360,7 +477,7 @@ async function refreshLbSide() {
       const top3s = rows.slice(0, 3);
       const medalsS = ["🥇","🥈","🥉"];
       if (!top3s.length) {
-        inner.append(el("span", { class: "lb-strip-empty" }, "No points yet today"));
+        inner.append(el("span", { class: "lb-strip-empty" }, t("hd.no_points_yet_today")));
       } else {
         top3s.forEach((r, i) => {
           inner.append(el("span", { class: "lb-strip-slot" + (r.user_id === ME.id ? " me" : "") },
@@ -373,12 +490,12 @@ async function refreshLbSide() {
         if (myIdx >= 3) {
           inner.append(el("span", { class: "lb-strip-slot you" },
             el("span", {}, "🪙"),
-            el("span", { class: "nm" }, `You #${myIdx + 1}`),
+            el("span", { class: "nm" }, `${t("lb.you")} #${myIdx + 1}`),
             el("span", { class: "pt" }, String(rows[myIdx].pts)),
           ));
         }
       }
-      inner.append(el("a", { class: "lb-strip-more", href: "#/leaderboard/daily" }, "Full →"));
+      inner.append(el("a", { class: "lb-strip-more", href: "#/leaderboard/daily" }, t("lb.full_short")));
       strip.append(inner);
       strip.hidden = false;
     }
@@ -388,10 +505,10 @@ async function refreshLbSide() {
       return;
     }
     side.innerHTML = "";
-    side.append(el("h4", {}, "Today's leaders", el("span", { style: "font-size:.7rem;color:var(--muted)" }, "🏆")));
+    side.append(el("h4", {}, t("hd.today_leaders"), el("span", { style: "font-size:.7rem;color:var(--muted)" }, "🏆")));
     const top3 = rows.slice(0, 3);
     if (!top3.length) {
-      side.append(el("p", { class: "hint", style: "font-size:.75rem" }, "No points yet today."));
+      side.append(el("p", { class: "hint", style: "font-size:.75rem" }, t("hd.no_points_yet_today")));
       side.hidden = false;
       return;
     }
@@ -412,12 +529,12 @@ async function refreshLbSide() {
     if (ME.role === "njy_coordinator" && myIdx >= 0) {
       const me = rows[myIdx];
       side.append(el("div", { class: "lb-you-row" },
-        el("span", { class: "lb-you-label" }, "You"),
+        el("span", { class: "lb-you-label" }, t("lb.you")),
         el("span", { class: "lb-you-rank" }, `#${myIdx + 1}`),
         el("span", { class: "lb-you-pts" }, `${me.pts} pts`),
       ));
     }
-    side.append(el("a", { class: "lb-open", href: "#/leaderboard/daily" }, "Full leaderboard →"));
+    side.append(el("a", { class: "lb-open", href: "#/leaderboard/daily" }, t("lb.full_link")));
     side.hidden = false;
   } catch (_) { side.hidden = true; }
   clearTimeout(_lbSideTimer);
@@ -449,12 +566,13 @@ function renderNav() {
     // tiles + all coordinators. Other roles (if ever granted hk_dashboard
     // by feature-gate) still see it.
     { href: "#/hk",        label: t("nav.hk"),       when: () => can("hk_dashboard") && ME.role !== "hk_leader" },
+    { href: "#/leaderboard", label: t("nav.leaderboard"), when: () => (can("leaderboard_coord_daily") || can("leaderboard_coord_overall") || can("leaderboard_leaders_daily") || can("leaderboard_leaders_overall")) && ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
     { href: "#/duties",    label: t("nav.duties"),   when: () => true },
-    { href: "#/events",    label: t("nav.events"),   when: () => can("event_attendance") },
+    { href: "#/events",    label: t("nav.events"),   when: () => can("event_attendance") || can("events_view_list") },
     { href: "#/sadhana",   label: t("nav.sadhana"),  when: () => can("sadhana_chart") && SADHANA_ROLES.includes(ME.role) },
     { href: "#/bv",        label: t("nav.bv"),       when: () => can("bv_structure_editor") && BV_ROLES.includes(ME.role) },
-    { href: "#/janmashtami", label: t("nav.janmashtami"), when: () => ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
-    { href: "#/leaderboard", label: t("nav.leaderboard"), when: () => ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
+    { href: "#/janmashtami", label: t("nav.janmashtami"), when: () => can("janmashtami_view_page") && ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
+    { href: "#/members",     label: t("nav.members"),     when: () => can("members_tab") && ["hk_leader","njy_leader","njy_coordinator"].includes(ME.role) },
     { href: "#/profile",     label: t("nav.profile"), when: () => ME.role === "njy_coordinator" },
     { href: "#/settings",  label: t("nav.settings"), when: () => ["njy_coordinator","njy_leader","hk_leader","servant_leader","manjari_servant_leader"].includes(ME.role) },
     { href: "#/admin",     label: t("nav.admin"),    when: () => can("feature_admin") },
@@ -479,6 +597,7 @@ function renderNav() {
 
 // ------------------------------------------------------ router ---
 function renderRoute() {
+  routeToken++;  // BUG 1+2: invalidate any in-flight fetches from the prior route
   renderNav();
   const view = $("view"); view.innerHTML = "";
   const h = location.hash || "#/";
@@ -492,7 +611,10 @@ function renderRoute() {
     let home = null;
     if (ME.role === "hk_leader") home = "#/leader";
     else if (ME.role === "njy_leader") home = "#/leader";
-    else if (ME.role === "njy_coordinator") home = "#/janmashtami";
+    else if (ME.role === "njy_coordinator") home = "#/leaderboard/overall/coords";
+    // Coord default is Leaderboard (post-Janmashtami). Janmashtami campaign
+    // is over, so we no longer auto-land coords on #/janmashtami. My Roll
+    // remains available in the nav for explicit navigation.
     if (home) { location.replace(home); return; }
   } else if (location.hash === "" || location.hash === "#/") {
     // second and later empty-hash renders → treat as "My roll" (or
@@ -512,9 +634,12 @@ function renderRoute() {
     "settings": renderSettings,
     "janmashtami": renderJanmashtami,
     "leaderboard": () => renderLeaderboard(arg || "daily", rest.join("/")),
+    "broadcast":   renderBroadcast,
+    "wa-group":    renderWaGroup,
     "profile":      () => renderProfile(arg),
     "points-rules": () => renderPointsRules(view),
     "member":   () => renderMemberDetails(arg),
+    "members":  () => renderMembers(view),
     "group-report": () => renderGroupReport(arg),
   };
   const fn = routes[path] || renderCoordRoll;
@@ -524,28 +649,762 @@ function renderRoute() {
 // ============================================================ views
 
 // ---------------------------------------------- coordinator roll ---
+// See "route token (BUG 1+2)" above — captures the current routeToken
+// on entry and bails after every await if the user has since navigated.
 async function renderCoordRoll(view) {
+  const myToken = routeToken;
   try {
     const { roll, tally } = await api("/api/roll");
-    // Coord banner: show who their NJY Leader is (or a nudge if unassigned)
+    if (myToken !== routeToken) return;
+    // Coord banner: show who their NJY Leader is (or a nudge if unassigned).
+    // CHANGE 5 — bold the leader's name (label stays regular weight),
+    // and render a small WhatsApp button next to it when the leader
+    // has a phone. Same for the "Contact HK" full-mesh link.
     if (ME.role === "njy_coordinator") {
-      const line = ME.manager_display_name
-        ? el("p", { class: "hint" }, t("hd.your_leader"), ": ", el("strong", {}, ME.manager_display_name))
-        : el("p", { class: "hint" }, t("msg.no_leader"));
+      const line = el("p", { class: "hint",
+        style: "display:flex;flex-wrap:wrap;gap:.4rem;align-items:center" });
+      if (ME.manager_display_name) {
+        line.append(
+          el("span", {}, t("hd.your_leader"), ": "),
+          el("strong", { style: "font-weight:700;color:var(--ink-2)" }, ME.manager_display_name),
+        );
+        if (ME.manager_phone) line.append(wame(ME.manager_phone, t("pill.contact_leader")));
+      } else {
+        line.append(el("span", {}, t("msg.no_leader")));
+      }
+      if (ME.hk_phone) line.append(wame(ME.hk_phone, t("pill.contact_hk")));
       view.append(line);
     }
+    // Prominent Broadcast CTA — coords only, above the scoreboard tiles
+    // so it's the first action visible on My Sangha. Big teal card with
+    // a sub-line; the inline WhatsApp template editor sits directly
+    // below so users see-the-message → tap-Broadcast in one motion.
+    if (roll.length > 0 && ME.role === "njy_coordinator" && can("myroll_broadcast_button")) {
+      const cta = el("a", { class: "broadcast-cta", href: "#/broadcast" },
+        el("span", { class: "broadcast-cta-label" }, t("bc.myroll_broadcast_btn")),
+        el("span", { class: "broadcast-cta-sub" }, t("bc.myroll_broadcast_sub")),
+      );
+      view.append(cta);
+    }
+    // Inline WhatsApp template editor — sits directly below Broadcast
+    // so the coord can review-and-edit the message before sending.
+    if (roll.length > 0 && ME.role === "njy_coordinator" && can("settings_wa_templates")) {
+      view.append(renderWaTemplateCard());
+    }
     view.append(tallyStrip(tally, ["assigned","chanted_today","followed_up","needs_visit"]));
+    // Secondary actions row — WA group setup + CSV download. Broadcast
+    // moved to the prominent card above.
+    if (roll.length > 0 && ME.role === "njy_coordinator") {
+      const secondaryRow = el("div", { style: "display:flex;gap:.5rem;flex-wrap:wrap;margin:.6rem 0" });
+      if (can("myroll_wa_group_button")) {
+        secondaryRow.append(el("a", { class: "btn", href: "#/wa-group",
+          style: "text-decoration:none;padding:.55rem 1rem;border-radius:8px;font-size:.9rem" },
+          ME.wa_group_link ? t("bc.myroll_wa_group_btn_have") : t("bc.myroll_wa_group_btn_setup")));
+      }
+      // Download CSV — client-side (data already fetched into `roll`),
+      // no server round-trip. Filename embeds the coord's own name.
+      secondaryRow.append(csvDownloadButton(roll, ME.display_name || "me", "my-sangha"));
+      if (secondaryRow.children.length) view.append(secondaryRow);
+    }
+    // Care-moment surfacing — coords only, shown right below the tally.
+    // Also gated on myroll_care_moments_panel so HK can hide it per role.
+    if (roll.length > 0 && ME.role === "njy_coordinator" && can("myroll_care_moments_panel")) {
+      const carePlaceholder = el("div", {});
+      view.append(carePlaceholder);
+      // Fetch care moments async so the roll UI renders immediately.
+      // BUG 1+2 guard — bail if the user navigated away while fetching.
+      (async () => {
+        try {
+          const cm = await api("/api/roll/care-moments");
+          if (myToken !== routeToken) return;
+          renderCareMomentPanel(carePlaceholder, cm);
+        } catch { /* silent — nice-to-have, not blocking */ }
+      })();
+    }
     view.append(beadLegend());
     view.append(garlandStrip(roll, /* editable */ true));
     view.append(rollList(roll, /* editable */ true));
     if (!roll.length) {
-      view.append(el("p", { class: "hint" }, "No chanters assigned yet. Ask your NJY Leader to assign your list, or (if you are the HK Leader) use bulk import from Admin."));
+      view.append(el("p", { class: "hint" }, t("msg.no_chanters_assigned")));
     }
   } catch (err) {
-    if (err.status === 403) view.append(el("p", { class: "hint" }, "You don't have a coordinator roll. Try the Team or HK tabs."));
-    else view.append(el("p", { class: "error" }, "Could not load roll: " + err.message));
+    if (err.status === 403) view.append(el("p", { class: "hint" }, t("msg.no_coord_roll")));
+    else view.append(el("p", { class: "error" }, t("msg.could_not_load") + err.message));
   }
 }
+
+// ----------------------------------------------- Care-Moment panel ---
+// Compact "Needs your attention" section on the coord's Roll. Each row
+// is a one-tap deep-link to send a specific pre-composed WhatsApp
+// message to that chanter. Keeps the outreach targeted and human.
+function renderCareMomentPanel(container, cm) {
+  container.innerHTML = "";
+  const total = (cm.counts.missed_3_plus || 0) + (cm.counts.missed_2 || 0) + (cm.counts.milestones || 0);
+  if (!total) {
+    container.append(el("div", { class: "care-empty" },
+      el("span", { style: "font-size:1.05rem" }, t("care.on_track")),
+      el("span", { class: "hint", style: "margin-left:.4rem;font-size:.85rem" }, t("msg.hare_krsna")),
+    ));
+    return;
+  }
+  const wrap = el("div", { class: "care-panel" });
+  wrap.append(el("h3", {},
+    el("span", {}, "🎯"),
+    el("span", {}, t("care.needs_attention")),
+    el("span", { class: "hint", style: "font-weight:400;font-size:.78rem;margin-left:auto" }, `${total} ${total === 1 ? t("care.chanter_count_suffix") : t("care.chanter_count_suffix_plural")}`),
+  ));
+
+  const buildRow = (item, icon, subtitle) => {
+    const row = el("div", { class: "care-row" });
+    row.append(
+      el("span", { class: "care-icon" }, icon),
+      el("div", {},
+        el("div", { class: "care-name" }, item.name),
+        el("div", { class: "care-sub" }, subtitle),
+      ),
+      el("a", { class: "care-send", href: item.wa_url, target: "_blank" }, t("care.send_btn")),
+    );
+    return row;
+  };
+
+  for (const item of (cm.missed_3_plus || [])) {
+    wrap.append(buildRow(item, "🔴", `${t("care.missed_days_prefix")}${item.days_missed}${t("care.missed_days_suffix")}`));
+  }
+  for (const item of (cm.missed_2 || [])) {
+    wrap.append(buildRow(item, "🟠", t("care.missed_yesterday")));
+  }
+  for (const item of (cm.milestones || [])) {
+    wrap.append(buildRow(item, "🎉", `${item.streak_days}${t("care.streak_suffix")}`));
+  }
+
+  wrap.append(el("p", { class: "hint", style: "margin:.6rem 0 0;font-size:.72rem" },
+    t("care.tap_send_hint")));
+  container.append(wrap);
+}
+
+// CHANGE 4 — a small card that lets the caller send a pre-filled text
+// message INTO their WhatsApp group. WhatsApp doesn't support
+// pre-filled messages to a group via URL, so we use the "no-phone"
+// wa.me picker (`https://wa.me/?text=...`) — WhatsApp opens the
+// contact/group picker with the text pre-filled, the caller taps
+// their group, then Send. Draft persists in localStorage (per browser).
+function renderWaGroupPickerCard() {
+  const STORAGE_KEY = "njy_wa_group_pick_msg";
+  const card = el("div", { class: "card" });
+  card.append(
+    el("h3", { class: "section", style: "margin-top:0" }, t("hd.send_msg_group")),
+    el("p", { class: "hint" }, t("help.send_msg_group")),
+  );
+  const ta = el("textarea", { id: "wg-pick-msg", rows: 4,
+    placeholder: t("help.wa_group_placeholder"),
+    style: "width:100%;padding:.5rem;border:1px solid var(--line);border-radius:6px" });
+  try { ta.value = localStorage.getItem(STORAGE_KEY) || ""; } catch { /* private mode */ }
+  ta.addEventListener("input", () => {
+    try { localStorage.setItem(STORAGE_KEY, ta.value); } catch { /* private mode */ }
+  });
+  card.append(ta);
+  const msg = el("span", { class: "hint", style: "margin-left:.5rem" });
+  const openBtn = el("button", { class: "primary", type: "button", id: "wg-pick-open",
+    style: "font-size:1rem;padding:.6rem 1.1rem" }, t("wg.picker_open_btn"));
+  card.append(el("p", { style: "margin-top:.7rem" }, openBtn, msg));
+  openBtn.addEventListener("click", () => {
+    const text = (ta.value || "").trim();
+    if (!text) { msg.textContent = t("msg.type_msg_first"); return; }
+    // api.whatsapp.com/send/ with no phone opens the contact/group
+    // picker with the text pre-filled. Used instead of wa.me because
+    // wa.me's redirect ASCII-fies 4-byte emoji codepoints — see the
+    // waUrl comment in renderBroadcastQueue.
+    const url = `https://api.whatsapp.com/send/?text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank", "noopener");
+    msg.textContent = t("msg.opened_pick_group");
+  });
+  return card;
+}
+
+// Inline "Your WhatsApp Message" editor rendered on My Sangha, right
+// below the Broadcast CTA. One template per coord — applies to every
+// member on the roll regardless of lifecycle status (change 2). Save
+// posts { wa_template } to /api/me/wa-templates and updates ME so the
+// wa.me links on the page pick it up on next reload.
+function renderWaTemplateCard() {
+  const card = el("div", { class: "wa-template-card" });
+  card.append(
+    el("h3", { class: "section", style: "margin-top:0" }, t("hd.wa_template_yours")),
+    el("p", { class: "hint" }, t("help.wa_template_inline")),
+  );
+  // Emoji-corruption guard. U+FFFD (REPLACEMENT CHARACTER, "�") shows
+  // up when a legacy save mangled 4-byte UTF-8. Silently drop the
+  // corrupted template and warn the coord so they can re-save.
+  const isCorrupt = (s) => typeof s === "string" && s.indexOf("�") >= 0;
+  if (isCorrupt(ME.wa_template_daily)) { ME.wa_template_daily = ""; }
+  const ta = el("textarea", { id: "wa-template-inline", rows: 5,
+    placeholder: t("bc.default_template"),
+    style: "width:100%;padding:.5rem;border:1px solid var(--line);border-radius:6px;font-family:inherit" });
+  ta.value = ME.wa_template_daily || "";
+  card.append(ta);
+  const msg = el("span", { class: "hint", style: "margin-left:.5rem" });
+  const saveBtn = el("button", { class: "primary", type: "button" }, t("btn.save"));
+  card.append(el("p", { style: "margin-top:.7rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap" }, saveBtn, msg));
+  saveBtn.addEventListener("click", async () => {
+    if (isCorrupt(ta.value)) { msg.textContent = t("st.corrupt_encoding"); return; }
+    try {
+      await api("/api/me/wa-templates", { method: "POST", body: JSON.stringify({
+        wa_template: ta.value,
+      }) });
+      ME.wa_template_daily = ta.value;
+      msg.textContent = t("msg.template_saved");
+    } catch (err) {
+      msg.textContent = err.message || t("st.save_failed");
+    }
+  });
+  return card;
+}
+
+// CHANGE 5 — canonical wa.me anchor helper. Strips "+" and non-digits
+// (matches server-side waDeepLink so the fix in CHANGE 1 applies
+// everywhere), and returns an inline "💬 <label>" pill. Returns an
+// empty placeholder if the phone is missing so callers don't need to
+// null-check.
+function wame(phone, label) {
+  const digits = String(phone || "").replace(/[^\d]/g, "");
+  if (!digits) return el("span", { hidden: true });
+  return el("a", {
+    class: "btn",
+    href: `https://api.whatsapp.com/send/?phone=${digits}`,
+    target: "_blank", rel: "noopener",
+    title: `WhatsApp: ${phone}`,
+    style: "text-decoration:none;padding:.15rem .55rem;border-radius:6px;font-size:.78rem;font-weight:500;background:#25D366;color:#fff;border:none",
+  }, "💬 ", label || "WhatsApp");
+}
+
+// Renders the two nav buttons (Broadcast + WA Group) shown on the
+// coord's My Roll, the leader's Team page, and the HK Leader's leaders
+// list. Recipient list is derived from the role — see
+// loadBroadcastRecipients().
+function broadcastAndWaGroupNav() {
+  const row = el("div", { style: "display:flex;gap:.5rem;flex-wrap:wrap;margin:.6rem 0" });
+  row.append(
+    el("a", { class: "primary", href: "#/broadcast",
+      style: "text-decoration:none;padding:.55rem 1rem;border-radius:8px;font-size:.9rem" },
+      t("bc.myroll_broadcast_btn")),
+    el("a", { class: "btn", href: "#/wa-group",
+      style: "text-decoration:none;padding:.55rem 1rem;border-radius:8px;font-size:.9rem" },
+      ME.wa_group_link ? t("bc.myroll_wa_group_btn_have") : t("bc.myroll_wa_group_btn_setup")),
+  );
+  return row;
+}
+
+// -------------------------------------------------- Broadcast queue ---
+// Steps a coord/leader/hk_leader through their recipients one at a
+// time, opening wa.me with a pre-personalised message each time. The
+// caller physically taps WhatsApp's Send button — no automation, zero
+// ban risk. See docs/BROADCAST.md for the full rationale.
+async function renderBroadcast(view) {
+  // CHANGE 3: coord/leader/hk all get broadcast. Recipient list is
+  // scoped per role — see loadBroadcastRecipients() below.
+  if (!["njy_coordinator", "njy_leader", "hk_leader"].includes(ME.role)) {
+    view.append(el("h2", { class: "section" }, t("hd.broadcast")));
+    view.append(el("p", { class: "hint" }, t("msg.broadcast_access")));
+    return;
+  }
+  // Split: setup screen if no queue in-progress; queue mode if there is.
+  if (window._njyBroadcast && window._njyBroadcast.queue) {
+    return renderBroadcastQueue(view);
+  }
+  return renderBroadcastSetup(view);
+}
+
+// Load the broadcast recipient list, normalised to
+// [{ id, name, phone, chanted_today?, bead_color? }]. Scoped by the
+// caller's role:
+//   njy_coordinator → their assigned members  (~50-100)   /api/roll
+//   njy_leader      → their assigned coords   (~10)       /api/leader/coordinators
+//   hk_leader       → all NJY leaders         (~30)       /api/hk/leaders
+async function loadBroadcastRecipients() {
+  if (ME.role === "njy_coordinator") {
+    const { roll } = await api("/api/roll");
+    return {
+      kind: "members",
+      label: t("wg.invitees_chanters"),
+      recipients: (roll || []).map(r => ({
+        id: r.id, name: r.name, phone: r.phone,
+        chanted_today: !!r.chanted_today, bead_color: r.bead_color,
+      })),
+    };
+  }
+  if (ME.role === "njy_leader") {
+    const { coordinators } = await api("/api/leader/coordinators");
+    return {
+      kind: "coords",
+      label: t("wg.invitees_coords"),
+      recipients: (coordinators || []).map(c => ({
+        id: c.user_id, name: c.name, phone: c.phone,
+      })),
+    };
+  }
+  if (ME.role === "hk_leader") {
+    const { leaders } = await api("/api/hk/leaders");
+    return {
+      kind: "leaders",
+      label: t("wg.invitees_leaders"),
+      recipients: (leaders || []).map(l => ({
+        id: l.user_id, name: l.name, phone: l.phone,
+      })),
+    };
+  }
+  return { kind: "none", label: t("wg.invitees_chanters"), recipients: [] };
+}
+
+async function renderBroadcastSetup(view) {
+  const myToken = routeToken;  // BUG 1+2
+  view.append(el("div", { class: "spread" },
+    el("h2", { class: "section" }, t("hd.broadcast_today")),
+    el("a", { class: "btn", href: "#/" }, t("btn.back")),
+  ));
+  const roleHelp = ME.role === "njy_coordinator"
+    ? t("bc.roles_coord_intro")
+    : ME.role === "njy_leader"
+    ? t("bc.roles_leader_intro")
+    : t("bc.roles_hk_intro");
+  view.append(helpBanner(roleHelp + t("bc.help_common")));
+  const loader = loadingLine(t("bc.loading_recipients"));
+  view.append(loader);
+  try {
+    const { kind, label, recipients } = await loadBroadcastRecipients();
+    if (myToken !== routeToken) return;
+    loader.remove();
+    if (!recipients.length) {
+      view.append(el("p", { class: "hint" }, `${t("bc.no_recipients_prefix")}${label}${t("bc.no_recipients_suffix")}`));
+      return;
+    }
+    // Message editor — defaults to caller's saved daily template.
+    const defaultMsg = ME.wa_template_daily || t("bc.default_template");
+    const msgTa = el("textarea", { id: "bc-msg", rows: 5 });
+    msgTa.value = defaultMsg;
+
+    // Skip-filters only make sense for the coord flow (they operate on
+    // per-chanter chant/bead state that leader/hk recipients don't have).
+    const isMembers = kind === "members";
+    const skipChanted = el("input", { type: "checkbox", id: "bc-skip-chanted", checked: true });
+    const skipRed = el("input", { type: "checkbox", id: "bc-skip-red", checked: false });
+
+    const countLine = el("div", { class: "bc-count-line" });
+    function recount() {
+      const filtered = recipients.filter(r => {
+        if (!isMembers) return true;
+        if (skipChanted.checked && r.chanted_today) return false;
+        if (skipRed.checked && r.bead_color === "red") return false;
+        return true;
+      });
+      countLine.innerHTML = "";
+      countLine.append(
+        el("strong", {}, `${filtered.length}`),
+        `${t("bc.will_receive_infix")}${recipients.length} ${label}${t("bc.will_receive_suffix")}`,
+      );
+    }
+    if (isMembers) {
+      skipChanted.addEventListener("change", recount);
+      skipRed.addEventListener("change", recount);
+    }
+    recount();
+
+    // Message card
+    const msgCard = el("div", { class: "bc-card" });
+    msgCard.append(
+      el("h3", {}, t("hd.message")),
+      el("p", { class: "bc-hint" },
+        t("bc.use_name_prefix"), el("code", { style: "background:var(--tint-followed);padding:.05rem .3rem;border-radius:3px" }, "{name}"),
+        isMembers ? t("bc.use_name_suffix_chanter") : t("bc.use_name_suffix_recipient")),
+      msgTa,
+    );
+    view.append(msgCard);
+
+    // Filters card — only for the coord/members flow.
+    const filterCard = el("div", { class: "bc-card" });
+    if (isMembers) {
+      filterCard.append(
+        el("h3", {}, t("hd.who_receives")),
+        el("label", { class: "bc-check-row" }, skipChanted,
+          el("span", { class: "bc-check-label" },
+            el("strong", {}, t("hd.skip_chanted")),
+            el("span", { class: "bc-check-sub" }, t("bc.skip_chanted_sub")))),
+        el("label", { class: "bc-check-row" }, skipRed,
+          el("span", { class: "bc-check-label" },
+            el("strong", {}, t("hd.skip_disqualified")),
+            el("span", { class: "bc-check-sub" }, t("bc.skip_disqualified_sub")))),
+        countLine,
+      );
+    } else {
+      filterCard.append(el("h3", {}, t("hd.who_receives")), countLine);
+    }
+    filterCard.append(
+      el("p", { style: "margin-top:1rem;text-align:right" },
+        el("button", { class: "primary", id: "bc-start", style: "font-size:1rem;padding:.7rem 1.4rem" },
+          t("bc.start_btn")),
+      ),
+    );
+    view.append(filterCard);
+
+    $("bc-start").addEventListener("click", () => {
+      const messageTemplate = msgTa.value.trim();
+      if (!messageTemplate) { alert(t("msg.type_msg_first")); return; }
+      const filtered = recipients.filter(r => {
+        if (!isMembers) return true;
+        if (skipChanted.checked && r.chanted_today) return false;
+        if (skipRed.checked && r.bead_color === "red") return false;
+        return true;
+      });
+      if (!filtered.length) { alert(t("msg.no_match_filter")); return; }
+      // Init session state — note `kind` gates whether the Sent-tap
+      // fires mark-contacted (only for members/chanters — coords and
+      // leaders are staff, not on any coord's roll).
+      window._njyBroadcast = {
+        queue: filtered.map(r => ({
+          id: r.id, name: r.name, phone: r.phone,
+          sent: false, skipped: false,
+        })),
+        index: 0,
+        messageTemplate,
+        startedAt: new Date().toISOString(),
+        kind,
+      };
+      // Re-render into queue mode.
+      const v = $("view"); v.innerHTML = "";
+      renderBroadcastQueue(v);
+    });
+  } catch (err) {
+    loader.remove();
+    view.append(el("p", { class: "error" }, t("msg.could_not_load_recipients") + err.message));
+  }
+}
+
+function renderBroadcastQueue(view) {
+  const state = window._njyBroadcast;
+  if (!state) { location.hash = "#/broadcast"; return; }
+  const total = state.queue.length;
+  const sentCount = state.queue.filter(x => x.sent).length;
+  const skipCount = state.queue.filter(x => x.skipped).length;
+  const done = state.index >= total;
+
+  view.append(el("div", { class: "spread" },
+    el("h2", { class: "section" }, done ? t("hd.broadcast_complete") : t("hd.broadcast_running")),
+    el("button", { class: "btn", id: "bc-cancel", type: "button" }, done ? t("btn.close") : t("btn.pause_exit")),
+  ));
+
+  $("bc-cancel").addEventListener("click", () => {
+    if (done || confirm(`${t("confirm.pause_broadcast")} ${sentCount} / ${total - sentCount - skipCount}`)) {
+      window._njyBroadcast = null;
+      location.hash = "#/";
+    }
+  });
+
+  // Progress card
+  const pct = Math.min(100, Math.round(100 * (sentCount + skipCount) / total));
+  const progressCard = el("div", { class: "bc-card", style: "padding:.9rem 1.2rem;margin-top:.5rem" });
+  progressCard.append(
+    el("div", { class: "spread", style: "margin-bottom:.4rem" },
+      el("strong", { style: "color:var(--peacock-deep);font-size:.9rem" },
+        done ? `${t("bc.finished_prefix")}${total}${t("bc.finished_suffix_chanters")}` : `${state.index + 1}${t("bc.of_infix")}${total}`),
+      el("span", { class: "hint", style: "font-size:.8rem" }, `${pct}%`),
+    ),
+    el("div", { class: "pbar", "data-mid": "0",
+      style: `--pct:${pct}%;height:8px;border-radius:4px` }),
+    el("div", { class: "hint", style: "margin-top:.4rem;font-size:.75rem;display:flex;gap:1rem" },
+      el("span", {}, t("chip.sent") + " ", el("strong", { style: "color:var(--peacock-deep)" }, sentCount)),
+      el("span", {}, t("chip.skipped") + " ", el("strong", {}, skipCount)),
+      el("span", {}, t("chip.remaining") + " ", el("strong", {}, Math.max(0, total - sentCount - skipCount))),
+    ),
+  );
+  view.append(progressCard);
+
+  if (done) {
+    // Tally the auto-contacted upgrades from the Sent taps.
+    const upgradedCount = state.queue.filter(x => x.contact_changed).length;
+    const summary = el("div", { class: "care-empty" },
+      el("h3", { style: "margin:0 0 .3rem" }, t("hd.broadcast_complete_card")),
+      el("p", { style: "margin:0;font-size:.9rem" },
+        t("bc.sent_to_prefix"), el("strong", {}, sentCount), ` ${sentCount === 1 ? t("bc.sent_to_suffix_chanter") : t("bc.sent_to_suffix_chanters")}. `,
+        skipCount ? `${t("bc.skipped_prefix")}${skipCount}. ` : "",
+        `${t("bc.started_prefix")}${new Date(state.startedAt).toLocaleTimeString()}${t("bc.finished_time_prefix")}${new Date().toLocaleTimeString()}.`),
+      upgradedCount ? el("p", { class: "hint", style: "margin:.4rem 0 0;font-size:.85rem" },
+        el("strong", { style: "color:var(--peacock-deep)" }, `${upgradedCount}`),
+        t("bc.upgraded_suffix")) : null,
+      el("p", { style: "margin-top:.9rem" },
+        el("a", { class: "bc-big-btn", href: "#/",
+          style: "background:var(--peacock-deep);box-shadow:0 2px 6px rgba(14,79,82,.3)" },
+          t("bc.return_myroll")),
+      ),
+    );
+    view.append(summary);
+    return;
+  }
+
+  // Current chanter card
+  const cur = state.queue[state.index];
+  const filledMsg = state.messageTemplate.replace(/\{name\}/g, (cur.name || "").split(" ")[0] || cur.name || "");
+  // wa.me wants phone digits only — leaving "+" in (encoded as %2B) breaks
+  // recipient matching on some WhatsApp clients and falls back to the
+  // compose picker, which re-parses the ?text= param under a non-UTF-8
+  // codec on some Android/iOS builds → emojis land as U+FFFD (�).
+  // Strip the "+" first so the URL is canonical wa.me/<digits>?text=...
+  // (matches what the server-side waDeepLink() emits for care-moments).
+  // api.whatsapp.com/send/ is used instead of wa.me because wa.me's
+  // 302 → api.whatsapp.com redirect ASCII-fies any 4-byte UTF-8 codepoint
+  // (emoji, U+1F338 🌸, U+1F64F 🙏, …) in the ?text= param to U+FFFD, which
+  // WhatsApp Web then renders as "?". Reproduce with:
+  //   curl -sI 'https://wa.me/9999?text=%F0%9F%8C%B8' | grep Location
+  // → Location: …&text=%EF%BF%BD…  (the replacement character)
+  // api.whatsapp.com/send/ is the endpoint wa.me redirects to and it
+  // preserves the codepoints intact. Works on WA mobile app + Web + Desktop.
+  const waPhone = String(cur.phone || "").replace(/[^\d]/g, "");
+  const waUrl = waPhone
+    ? `https://api.whatsapp.com/send/?phone=${waPhone}&text=${encodeURIComponent(filledMsg)}`
+    : `https://api.whatsapp.com/send/?text=${encodeURIComponent(filledMsg)}`;
+
+  const card = el("div", { class: "bc-card" });
+  card.append(
+    el("div", { style: "display:flex;justify-content:space-between;align-items:baseline;gap:.5rem;margin-bottom:.7rem;padding-bottom:.7rem;border-bottom:1px solid var(--line)" },
+      el("div", {},
+        el("h3", { style: "margin:0;font-size:1.15rem;color:var(--ink)" }, cur.name),
+        el("span", { class: "hint", style: "font-family:var(--font-mono);font-size:.8rem" }, cur.phone),
+      ),
+      el("span", { style: "font-size:.75rem;color:var(--muted);align-self:flex-start" }, `#${state.index + 1}`),
+    ),
+    el("div", { class: "bc-hint", style: "margin-bottom:.4rem" }, t("bc.message_that_sent")),
+    el("div", {
+      style: "background:var(--tint-followed,#f6f2ea);padding:.75rem .9rem;border-radius:6px;border-left:3px solid var(--peacock-deep);white-space:pre-wrap;font-size:.88rem;line-height:1.45;color:var(--ink-2);margin-bottom:1rem",
+    }, filledMsg),
+    el("div", { style: "display:flex;flex-wrap:wrap;gap:.6rem;align-items:center" },
+      el("a", { class: "bc-big-btn", href: waUrl, target: "_blank", id: "bc-send" },
+        t("bc.send_via_wa")),
+      el("button", { class: "btn", id: "bc-skip", type: "button",
+        style: "padding:.55rem .9rem" }, t("btn.skip")),
+    ),
+    el("p", { class: "bc-hint", style: "margin:.9rem 0 .3rem;font-size:.78rem" },
+      t("bc.after_tap_hint")),
+    el("p", { style: "margin:0" },
+      el("button", { class: "primary", id: "bc-next", type: "button",
+        style: "background:var(--peacock-deep,#0e4f52);padding:.7rem 1.2rem;font-size:.95rem" },
+        t("bc.sent_next")),
+    ),
+  );
+  view.append(card);
+
+  $("bc-send").addEventListener("click", () => {
+    // Only records the intent — actual send is the coord tapping WA's Send
+    cur._opened = true;
+  });
+  $("bc-next").addEventListener("click", async () => {
+    cur.sent = true;
+    // Anti-false-positive: only the explicit Sent tap upgrades status,
+    // not the mere wa.me open (which the coord may have abandoned). If
+    // the person is already at 2 (responded) or higher, the server will
+    // not downgrade — the endpoint's guard is "only 0 → 1".
+    // Only fire mark-contacted when the queue is over MEMBERS (people
+    // on a coord's roll). For leader→coord and hk→leader broadcasts,
+    // the "recipient" is a staff user with no person_id and no
+    // contact_state — the endpoint would 404.
+    if (cur.id && state.kind === "members") {
+      try {
+        const r = await api("/api/roll/mark-contacted", {
+          method: "POST", body: JSON.stringify({ person_id: cur.id }),
+        });
+        cur.contact_state_after = r.contact_state;
+        cur.contact_changed = r.changed;
+      } catch { /* non-blocking — don't stall the queue on an API blip */ }
+    }
+    state.index += 1;
+    const v = $("view"); v.innerHTML = "";
+    renderBroadcastQueue(v);
+  });
+  $("bc-skip").addEventListener("click", () => {
+    cur.skipped = true;
+    state.index += 1;
+    const v = $("view"); v.innerHTML = "";
+    renderBroadcastQueue(v);
+  });
+}
+
+// -------------------------------------------------- WhatsApp Group ---
+// Per-coord group management: paste the WA invite link once, then
+// multi-select chanters and run the sequential queue to send them
+// personalised invite messages. WhatsApp doesn't allow programmatic
+// group-adds from personal accounts, so the flow is always
+// "chanter taps the link → WhatsApp shows Join Group screen".
+async function renderWaGroup(view) {
+  const myToken = routeToken;  // BUG 1+2
+  // CHANGE 3: coord/leader/hk all get WhatsApp Group Helper. The
+  // recipient list is scoped by role — see loadBroadcastRecipients().
+  if (!["njy_coordinator", "njy_leader", "hk_leader"].includes(ME.role)) {
+    view.append(el("h2", { class: "section" }, t("hd.wa_group_page")));
+    view.append(el("p", { class: "hint" }, t("msg.wa_group_access")));
+    return;
+  }
+  const inviteeWord = ME.role === "njy_coordinator" ? t("wg.invitees_chanters")
+    : ME.role === "njy_leader" ? t("wg.invitees_coords")
+    : t("wg.invitees_leaders");
+  view.append(el("div", { class: "spread" },
+    el("h2", { class: "section" }, t("hd.my_wa_group")),
+    el("a", { class: "btn", href: "#/" }, t("btn.back")),
+  ));
+  view.append(helpBanner(
+    t("wg.setup_help_prefix") + inviteeWord + t("wg.setup_help_mid") + inviteeWord + t("wg.setup_help_suffix")
+  ));
+
+  // --- Setup card ---
+  const setup = el("div", { class: "card" });
+  setup.append(el("h3", { class: "section", style: "margin-top:0" }, t("hd.group_settings")));
+
+  const nameI = el("input", { id: "wg-name", placeholder: t("wg.ph_name") });
+  nameI.value = ME.wa_group_name || "";
+  const linkI = el("input", { id: "wg-link", placeholder: t("wg.ph_link") });
+  linkI.value = ME.wa_group_link || "";
+  const msg = el("span", { class: "hint", style: "margin-left:.5rem" });
+  const saveBtn = el("button", { class: "primary", id: "wg-save" }, t("btn.save"));
+  const testBtn = el("button", { class: "btn", id: "wg-test", style: "margin-left:.4rem" }, t("btn.test_link"));
+  const clearBtn = el("button", { class: "btn", id: "wg-clear", style: "margin-left:.4rem" }, t("btn.clear"));
+
+  setup.append(
+    formField(t("wg.group_name_field"), nameI),
+    formField(t("wg.link_field"), linkI),
+    el("p", { style: "margin-top:.7rem" }, saveBtn, testBtn, clearBtn, msg),
+  );
+
+  saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    try {
+      const link = linkI.value.trim();
+      if (link && !/^https:\/\/chat\.whatsapp\.com\//i.test(link)) {
+        throw new Error(t("wg.link_must_start"));
+      }
+      await api("/api/me/wa-group", { method: "POST",
+        body: JSON.stringify({ wa_group_link: link, wa_group_name: nameI.value.trim() }) });
+      ME.wa_group_link = link || null;
+      ME.wa_group_name = nameI.value.trim() || null;
+      msg.textContent = t("msg.saved_short");
+    } catch (err) { msg.textContent = t("msg.error_prefix") + err.message; }
+    finally { saveBtn.disabled = false; }
+  });
+  testBtn.addEventListener("click", () => {
+    const link = linkI.value.trim();
+    if (!link) { msg.textContent = t("msg.paste_link_first"); return; }
+    window.open(link, "_blank");
+  });
+  clearBtn.addEventListener("click", async () => {
+    if (!confirm(t("confirm.clear_group"))) return;
+    nameI.value = ""; linkI.value = "";
+    try {
+      await api("/api/me/wa-group", { method: "POST",
+        body: JSON.stringify({ wa_group_link: "", wa_group_name: "" }) });
+      ME.wa_group_link = null; ME.wa_group_name = null;
+      msg.textContent = t("msg.cleared");
+    } catch (err) { msg.textContent = t("msg.error_prefix") + err.message; }
+  });
+  view.append(setup);
+
+  // --- CHANGE 4: Send-to-group message picker ---
+  view.append(renderWaGroupPickerCard());
+
+  // --- Invite recipients card ---
+  const linkNow = () => (linkI.value || "").trim();
+  const invite = el("div", { class: "card" });
+  invite.append(el("h3", { class: "section", style: "margin-top:0" }, `${t("wg.invite_title_prefix")}${inviteeWord}${t("wg.invite_title_suffix")}`));
+
+  const loader = loadingLine(t("bc.loading_recipients"));
+  invite.append(loader);
+  view.append(invite);
+
+  try {
+    const { kind, label, recipients } = await loadBroadcastRecipients();
+    if (myToken !== routeToken) return;
+    loader.remove();
+    if (!recipients.length) {
+      invite.append(el("p", { class: "hint" }, `${t("bc.no_recipients_prefix")}${label}${t("bc.no_recipients_suffix")}`));
+      return;
+    }
+
+    invite.append(el("p", { class: "hint" },
+      t("wg.select_intro_prefix") + label + t("wg.select_intro_mid") + t("wg.select_intro_suffix")));
+
+    // Message template for invites
+    const inviteMsg = el("textarea", { id: "wg-inv-msg", rows: 4,
+      style: "width:100%;padding:.5rem;border:1px solid var(--line);border-radius:6px" });
+    inviteMsg.value = t("wg.default_invite");
+    invite.append(el("p", { class: "hint" }, t("help.invite_message")));
+    invite.append(inviteMsg);
+
+    // Recipients multi-select list
+    const listHead = el("div", { class: "spread", style: "margin-top:1rem;padding:.5rem .1rem;border-bottom:1px solid var(--line)" });
+    const selectAll = el("input", { type: "checkbox", id: "wg-select-all" });
+    listHead.append(
+      el("label", { style: "display:flex;gap:.5rem;align-items:center;cursor:pointer;font-weight:500;margin:0" },
+        selectAll, el("span", {}, t("wg.select_all"))),
+      el("span", { class: "hint", id: "wg-count", style: "font-size:.85rem" }, "0" + t("wg.selected_suffix")),
+    );
+    invite.append(listHead);
+
+    const ul = el("div", { style: "max-height:280px;overflow-y:auto;margin-top:0;border:1px solid var(--line);border-radius:6px;background:var(--surface)" });
+    const rowChecks = [];
+    recipients.forEach((r) => {
+      const cb = el("input", { type: "checkbox", value: r.id, "data-name": r.name, "data-phone": r.phone || "" });
+      rowChecks.push(cb);
+      cb.addEventListener("change", updateCount);
+      const row = el("label", {
+        style: "display:flex;gap:.7rem;align-items:center;cursor:pointer;padding:.5rem .7rem;border-bottom:1px solid var(--line);margin:0",
+      },
+        cb,
+        el("span", { style: "flex:1;min-width:0" },
+          el("div", { style: "font-weight:500;font-size:.9rem;color:var(--ink-2);text-overflow:ellipsis;overflow:hidden;white-space:nowrap" }, r.name),
+          el("div", { class: "hint", style: "font-size:.72rem;font-family:var(--font-mono)" }, r.phone || t("wg.no_phone"))),
+      );
+      ul.append(row);
+    });
+    invite.append(ul);
+    function updateCount() {
+      const selected = rowChecks.filter(c => c.checked).length;
+      $("wg-count").textContent = `${selected}${t("wg.selected_suffix")}`;
+    }
+    selectAll.addEventListener("change", () => {
+      rowChecks.forEach(c => { c.checked = selectAll.checked; });
+      updateCount();
+    });
+
+    // Send-invite button
+    const sendBtn = el("button", { class: "primary", id: "wg-send-invites", type: "button" },
+      t("wg.start_invite_queue"));
+    invite.append(el("p", { style: "margin-top:.7rem" }, sendBtn));
+
+    sendBtn.addEventListener("click", () => {
+      const link = linkNow();
+      if (!link) { alert(t("msg.saved_link_first")); return; }
+      const selected = rowChecks.filter(c => c.checked);
+      if (!selected.length) { alert(t("msg.select_at_least_one")); return; }
+      const template = inviteMsg.value.trim();
+      if (!template.includes("{link}")) {
+        if (!confirm(t("confirm.no_link_placeholder"))) return;
+      }
+      const compiled = template.replace(/\{link\}/g, link);
+      // Reuse the broadcast queue infrastructure with this invite message.
+      window._njyBroadcast = {
+        queue: selected.map(c => ({
+          id: c.value,
+          name: c.dataset.name,
+          phone: c.dataset.phone,
+          sent: false, skipped: false,
+        })),
+        index: 0,
+        messageTemplate: compiled,
+        startedAt: new Date().toISOString(),
+        kind,
+      };
+      location.hash = "#/broadcast";
+    });
+  } catch (err) {
+    loader.remove();
+    invite.append(el("p", { class: "error" }, t("msg.could_not_load_recipients") + err.message));
+  }
+}
+
 
 // Small legend explaining what the bead colors mean, shown above the
 // garland on any roll view. Compact — fits on one line most screens.
@@ -582,7 +1441,7 @@ function tallyStrip(tally, keys) {
   };
   const row = el("div", { class: "tally" });
   for (const k of keys) {
-    row.append(el("div", { class: "cell" },
+    row.append(el("div", { class: "cell", "data-key": k },
       el("div", { class: "n" }, String(tally[k] ?? 0)),
       el("div", { class: "k" }, map[k] || k),
     ));
@@ -590,24 +1449,32 @@ function tallyStrip(tally, keys) {
   return row;
 }
 
+// Adjust a live tally cell's number by delta (e.g. +1 / -1). Silently
+// no-ops if the cell isn't present (some views don't include it).
+function bumpTallyCell(key, delta) {
+  const n = document.querySelector(`.tally .cell[data-key="${key}"] .n`);
+  if (!n) return;
+  const cur = parseInt(n.textContent, 10) || 0;
+  n.textContent = String(Math.max(0, cur + delta));
+}
+
 // Human-readable label for a bead color — used in tooltips.
 function beadColorLabel(c) {
-  return ({
-    white: "fresh, not marked today",
-    yellow: "contacted today",
-    orange: "responded today",
-    green: "chanted today",
-    red: "needs attention — 3+ days no chant",
-  })[c] || "fresh";
+  return t("bead.color." + c) !== "bead.color." + c ? t("bead.color." + c) : t("bead.color.white");
 }
 
 // Build a 14-day history strip for one person. Each day is a small
 // clickable dot — grey for "not chanted", green for "chanted", ringed
 // for today. Tap any dot to toggle that day. Backfilling past dates
 // covers the "they forgot to mark yesterday" case.
-async function buildHistoryStrip(personId) {
+async function buildHistoryStrip(personId, opts = {}) {
+  // opts.row     — the row object from rollList; toggled today-cell syncs
+  //                r.chanted_today + r.bead_color so the row's chant chip,
+  //                row bead, garland bead, and tally counter stay live.
+  // opts.chantBtn — the .chant-tag button for this row (kept in sync).
+  const { row, chantBtn } = opts;
   const strip = el("div", { class: "history-strip" });
-  strip.append(el("div", { class: "hint", style: "grid-column:1/-1;font-size:.7rem" }, "Loading history…"));
+  strip.append(el("div", { class: "hint", style: "grid-column:1/-1;font-size:.7rem" }, t("hist.loading")));
   try {
     const { history } = await api(`/api/roll/${encodeURIComponent(personId)}/history?days=14`);
     strip.innerHTML = "";
@@ -617,7 +1484,7 @@ async function buildHistoryStrip(personId) {
       const monthName = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][parseInt(m, 10) - 1];
       const cell = el("div", {
         class: "history-day" + (d.chanted ? " chanted" : "") + (d.is_today ? " today" : ""),
-        title: `${d.date} — ${d.chanted ? "chanted" : "not chanted"}${d.is_today ? " (today)" : ""}. Tap to toggle.`,
+        title: `${d.date} — ${d.chanted ? t("hist.chanted") : t("hist.not_chanted")}${d.is_today ? t("hist.today_suffix") : ""}${t("hist.tap_toggle")}`,
       },
         el("div", { class: "label" }, day),
         el("div", { class: "month" }, monthName),
@@ -631,13 +1498,30 @@ async function buildHistoryStrip(personId) {
           }) });
           d.chanted = next;
           cell.classList.toggle("chanted", next);
-        } catch (err) { alert(err.message || "Could not update"); }
+          cell.title = `${d.date} — ${next ? t("hist.chanted") : t("hist.not_chanted")}${d.is_today ? t("hist.today_suffix") : ""}${t("hist.tap_toggle")}`;
+          // When the toggled day IS today, the person's row-level state
+          // (chant chip, bead color, and tally counter) is derived from
+          // "chanted today" — sync those so the UI matches the DB without
+          // a page reload. Past-date toggles only affect history + the
+          // 3-day-miss red state, which is refreshed on next full load.
+          if (d.is_today && row) {
+            row.chanted_today = next;
+            row.bead_color = recomputeBead(row);
+            document.querySelectorAll(`.bead[data-person="${row.id}"]`)
+              .forEach(x => x.dataset.color = row.bead_color);
+            if (chantBtn) {
+              chantBtn.className = "chant-tag" + (next ? " on" : "");
+              chantBtn.textContent = next ? t("btn.chanted") : t("btn.chant_q");
+            }
+            bumpTallyCell("chanted_today", next ? 1 : -1);
+          }
+        } catch (err) { alert(err.message || t("msg.could_not_update")); }
       });
       strip.append(cell);
     }
   } catch (err) {
     strip.innerHTML = "";
-    strip.append(el("p", { class: "hint", style: "grid-column:1/-1;font-size:.7rem" }, "Could not load: " + err.message));
+    strip.append(el("p", { class: "hint", style: "grid-column:1/-1;font-size:.7rem" }, t("msg.could_not_load") + err.message));
   }
   return strip;
 }
@@ -655,7 +1539,7 @@ function bead(colorOrState, onclick) {
 }
 
 function garlandStrip(roll, editable) {
-  const g = el("div", { class: "garland", "aria-label": "Roll at a glance" });
+  const g = el("div", { class: "garland", "aria-label": t("aria.roll_glance") });
   roll.forEach((r) => {
     const b = bead(r.bead_color || "white", editable ? async () => {
       const upd = await api("/api/roll/mark", { method: "POST", body: JSON.stringify({ person_id: r.id }) });
@@ -670,6 +1554,219 @@ function garlandStrip(roll, editable) {
     g.append(b);
   });
   return g;
+}
+
+// ------------------------------------------------ CSV export button ---
+// Client-side CSV of the roll rows already fetched into the view — no
+// server round-trip. Blob + object-URL + <a download> works on all
+// evergreen mobile browsers (verified iOS Safari 15+, Android Chrome).
+// Called from My Sangha (coord's own roll) and from renderUserDrill
+// (leader / HK drilling into a coord).
+function slugify(name) {
+  return String(name || "")
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")   // strip diacritics
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40) || "unknown";
+}
+
+function csvEscape(v) {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+// Map a roll row's contact_state to the human-readable status label
+// used on the roll UI (fresh / contacted / responded / needs_attention).
+// The row also carries lifecycle `status` (fresh/chanter/daily/etc); we
+// export the contact-flow state because that's what the bead reflects
+// and what field-staff recognise as "status" in the app.
+function contactStateLabel(cs, personStatus) {
+  // needs_visit / needs_attention takes precedence when set.
+  if (cs === 3) return "needs_attention";
+  if (personStatus === "daily") return "chanted";   // daily = enrolled chanter
+  if (cs === 2) return "responded";
+  if (cs === 1) return "contacted";
+  return "fresh";
+}
+
+// Excel mangles anything that looks like a number, so a raw mobile like
+// "+919876543210" or "9876543210" gets rendered in scientific notation
+// or with the leading + stripped. Wrapping the value as ="…" tells Excel
+// "this cell is a text formula" and preserves the exact string on open.
+// The wrapped formula still needs standard CSV quoting because it
+// contains =, so we escape any embedded quotes and wrap in double quotes.
+function csvMobileCell(phone) {
+  const s = String(phone ?? "").trim();
+  if (!s) return "";
+  return `"=""${s.replace(/"/g, '""""')}"""`;
+}
+
+function rollToCsv(roll) {
+  const header = [
+    "SL Number", "Name", "Mobile", "Pincode", "Status",
+    "Daily Member", "Last Chanted Date", "Notes",
+  ];
+  const lines = [header.join(",")];
+  roll.forEach((r) => {
+    lines.push([
+      csvEscape(r.sl_no ?? ""),
+      csvEscape(r.name),
+      csvMobileCell(r.phone),
+      csvEscape(r.pincode ?? ""),
+      csvEscape(contactStateLabel(r.contact_state || 0, r.status)),
+      csvEscape(r.status === "daily" ? "yes" : "no"),
+      csvEscape(r.last_chanted_date ?? ""),
+      csvEscape(r.notes ?? ""),
+    ].join(","));
+  });
+  // Prepend BOM so Excel opens Tamil/UTF-8 names correctly.
+  return "﻿" + lines.join("\r\n") + "\r\n";
+}
+
+function csvDownloadButton(roll, ownerName, filenamePrefix) {
+  const btn = el("button", { class: "btn", type: "button",
+    style: "text-decoration:none;padding:.55rem 1rem;border-radius:8px;font-size:.9rem" },
+    t("myroll.download_csv"));
+  btn.addEventListener("click", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const filename = `${filenamePrefix}-${slugify(ownerName)}-${today}.csv`;
+    const blob = new Blob([rollToCsv(roll)], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    // Revoke on next tick so Safari has time to start the download.
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  });
+  return btn;
+}
+
+// -------------------------------- auto-mark-contacted with undo toast ---
+// Shared helper for the individual WhatsApp button on a roll row (both
+// rollList and rollListManageable). We can't observe WhatsApp's Send
+// tap from a wa.me link — so at wa.me open time we optimistically fire
+// mark-contacted and show a 5s "Marked · Undo" toast. Tapping Undo
+// within 5s reverts the row back to its prior contact_state via
+// /api/roll/mark. If the person is already at contact_state >= 2
+// (responded), the server's guard is a no-op and we simply skip the
+// toast — nothing changed, nothing to undo.
+//
+// Sibling beads for the same person on the garland strip stay in sync
+// via the .bead[data-person="..."] selector, the same channel the row
+// beadwrap and chant toggle use.
+function attachWaAutoMarkContacted(anchor, row, rowBead) {
+  anchor.addEventListener("click", () => {
+    // Only fire when there's an assigned person id and the current
+    // state is fresh (0). The server also guards this (0 → 1 only), but
+    // client-side gating avoids a wasted round-trip and a stale toast.
+    if (!row || !row.id) return;
+    const priorState = row.contact_state || 0;
+    if (priorState !== 0) return;   // already contacted/responded/needs_visit
+
+    // Optimistic UI: flip row + garland to "yellow" (contacted) now.
+    row.contact_state = 1;
+    row.bead_color = recomputeBead(row);
+    if (rowBead) rowBead.dataset.color = row.bead_color;
+    document.querySelectorAll(`.bead[data-person="${row.id}"]`)
+      .forEach(x => x.dataset.color = row.bead_color);
+
+    // Fire the mark-contacted API in the background. If it fails we
+    // revert the optimistic UI — no toast in that case, the user
+    // didn't ask for an undo they never saw offered.
+    let committed = false;
+    api("/api/roll/mark-contacted", {
+      method: "POST", body: JSON.stringify({ person_id: row.id }),
+    }).then((r) => {
+      committed = true;
+      // Server may report a different final state if a race happened.
+      row.contact_state = r.contact_state ?? row.contact_state;
+    }).catch(() => {
+      // API blip — revert optimistic UI, no toast.
+      row.contact_state = priorState;
+      row.bead_color = recomputeBead(row);
+      if (rowBead) rowBead.dataset.color = row.bead_color;
+      document.querySelectorAll(`.bead[data-person="${row.id}"]`)
+        .forEach(x => x.dataset.color = row.bead_color);
+    });
+
+    // Show the toast. Undo reverts the state on the server AND the UI.
+    showUndoToast(row.name, async () => {
+      // Wait for the commit round-trip if it's still in flight, so an
+      // Undo tap immediately after the WA open still finds a server
+      // state to revert from.
+      const revertUi = () => {
+        row.contact_state = priorState;
+        row.bead_color = recomputeBead(row);
+        if (rowBead) rowBead.dataset.color = row.bead_color;
+        document.querySelectorAll(`.bead[data-person="${row.id}"]`)
+          .forEach(x => x.dataset.color = row.bead_color);
+      };
+      revertUi();
+      if (committed) {
+        try {
+          await api("/api/roll/mark", {
+            method: "POST", body: JSON.stringify({ person_id: row.id, contact_state: priorState }),
+          });
+        } catch { /* undo is best-effort */ }
+      }
+    });
+  });
+}
+
+// Minimal, self-contained toast — one at a time, bottom-centered,
+// auto-commits after 5s (dismissed with no action taken). Undo tap
+// fires the callback and dismisses immediately. Reuses no existing
+// styles; footprint is one absolutely-positioned <div>.
+let _njyToastEl = null;
+let _njyToastTimer = null;
+function showUndoToast(personName, onUndo) {
+  // Dismiss any prior toast — one at a time, latest wins.
+  if (_njyToastTimer) { clearTimeout(_njyToastTimer); _njyToastTimer = null; }
+  if (_njyToastEl && _njyToastEl.isConnected) _njyToastEl.remove();
+
+  const msg = (t("toast.marked_contacted_prefix") || "Marked ")
+            + personName
+            + (t("toast.marked_contacted_suffix") || " as contacted");
+  const undoLabel = t("toast.undo") || "Undo";
+
+  const box = el("div", {
+    role: "status",
+    style: [
+      "position:fixed",
+      "left:50%", "bottom:24px",
+      "transform:translateX(-50%)",
+      "background:#1f2937", "color:#fff",
+      "padding:.7rem 1rem", "border-radius:8px",
+      "box-shadow:0 4px 14px rgba(0,0,0,.25)",
+      "display:flex", "align-items:center", "gap:.7rem",
+      "z-index:9999", "font-size:.9rem",
+      "max-width:min(92vw,420px)",
+    ].join(";"),
+  },
+    el("span", { style: "flex:1" }, msg),
+    el("button", { type: "button", style:
+      "background:transparent;color:#facc15;border:none;font-weight:700;cursor:pointer;padding:.2rem .4rem",
+    }, "· " + undoLabel),
+  );
+  const undoBtn = box.querySelector("button");
+  undoBtn.addEventListener("click", () => {
+    if (_njyToastTimer) { clearTimeout(_njyToastTimer); _njyToastTimer = null; }
+    _njyToastEl = null;
+    box.remove();
+    try { onUndo(); } catch { /* undo is best-effort */ }
+  });
+  document.body.append(box);
+  _njyToastEl = box;
+  _njyToastTimer = setTimeout(() => {
+    _njyToastTimer = null;
+    if (_njyToastEl === box) _njyToastEl = null;
+    box.remove();
+  }, 5000);
 }
 
 function rollList(roll, editable) {
@@ -689,18 +1786,16 @@ function rollList(roll, editable) {
     const name = el("div", { class: "name" });
     name.innerHTML = esc(r.name) + `<span class="phone">${esc(r.phone || "")}</span>`;
 
-    // Lifecycle status dropdown — the source of truth for the "daily
-    // chanter commitment" (was previously a Manage-panel dropdown, now
-    // inline). When status is not "daily", the chant toggle is disabled.
+    // Lifecycle status dropdown — tracks the "daily chanter commitment"
+    // for reporting/leaderboards, but no longer gates the Chant button
+    // (coords chant any member on their roll, regardless of status).
     const lifecycle = el("select", { class: "lifecycle", "data-status": r.status || "chanter" },
-      ...LIFECYCLE.map(s => el("option", { value: s, selected: r.status === s ? true : undefined }, s)),
+      ...LIFECYCLE.map(s => el("option", { value: s, selected: r.status === s ? true : undefined }, lifecycleLabel(s))),
     );
 
     const chant = el("button", { class: "chant-tag" + (r.chanted_today ? " on" : "") },
       r.chanted_today ? t("btn.chanted") : t("btn.chant_q"));
-    if (r.status !== "daily") chant.setAttribute("disabled", "");
     if (editable) chant.addEventListener("click", async () => {
-      if (r.status !== "daily") return;
       const next = !r.chanted_today;
       await api("/api/roll/chant", { method: "POST", body: JSON.stringify({ person_id: r.id, chanted: next }) });
       r.chanted_today = next;
@@ -718,22 +1813,25 @@ function rollList(roll, editable) {
         });
         r.status = lifecycle.value;
         lifecycle.dataset.status = r.status;
-        if (r.status === "daily") chant.removeAttribute("disabled");
-        else { chant.setAttribute("disabled", ""); }
       } catch (err) {
-        alert(err.message || "Could not update status");
+        alert(err.message || t("msg.could_not_update_status"));
         lifecycle.value = r.status || "chanter";
       }
     });
 
     const wa = el("a", { class: "wa", href: r.wa_url, target: "_blank", rel: "noopener" }, t("btn.whatsapp"));
+    // Auto-mark contacted + undo toast on wa.me open. Only fires for
+    // rows that are currently fresh (contact_state === 0). No-op for
+    // rows already marked contacted/responded/needs_visit. Editable-
+    // only — read-only views don't get to change status.
+    if (editable) attachWaAutoMarkContacted(wa, r, rowBead);
 
     // "History" button — expands a 14-day chant strip below the row
-    const historyBtn = el("button", { class: "history-btn", title: "Show 14-day chant history" }, "📅");
+    const historyBtn = el("button", { class: "history-btn", title: t("title.chant_history") }, "📅");
     historyBtn.addEventListener("click", async () => {
       const existing = li.querySelector(".history-strip");
       if (existing) { existing.remove(); return; }
-      const strip = await buildHistoryStrip(r.id);
+      const strip = await buildHistoryStrip(r.id, { row: r, chantBtn: chant });
       li.append(strip);
     });
 
@@ -745,14 +1843,25 @@ function rollList(roll, editable) {
 
 // ------------------------------------------------- leader dashboard ---
 async function renderLeaderDashboard(view) {
+  const myToken = routeToken;  // BUG 1+2
   view.append(el("h2", { class: "section" }, t("nav.team")));
   // HK Leader: hierarchical view — NJY Leaders first, drill to their coords.
   if (ME.role === "hk_leader") return renderHkLeadersList(view);
   view.append(helpBanner(t("help.team")));
-  const loader = loadingLine("Loading your coordinators…");
+  // CHANGE 5 — leader → HK full-mesh contact link.
+  if (ME.hk_phone) {
+    view.append(el("p", { class: "hint", style: "display:flex;gap:.4rem;align-items:center;margin:.4rem 0" },
+      t("team.hk_leader_prefix"), el("strong", { style: "font-weight:700;color:var(--ink-2)" }, ME.hk_display_name || t("team.hk_leader_fallback")),
+      wame(ME.hk_phone, t("pill.contact_hk")),
+    ));
+  }
+  // CHANGE 3 — leader gets Broadcast + WA Group over their coords.
+  view.append(broadcastAndWaGroupNav());
+  const loader = loadingLine(t("team.loading_coords"));
   view.append(loader);
   try {
     const { coordinators } = await api("/api/leader/coordinators");
+    if (myToken !== routeToken) return;
     loader.remove();
     if (!coordinators.length) {
       return view.append(el("p", { class: "hint" }, t("msg.no_coords_leader")));
@@ -772,13 +1881,17 @@ async function renderLeaderDashboard(view) {
 // HK Leader home — the leaders list with per-leader aggregates. Each row
 // drills into a leader-detail page showing that leader's coords.
 async function renderHkLeadersList(view) {
+  const myToken = routeToken;  // BUG 1+2
   view.append(helpBanner(t("help.hk_leaders_list")));
-  const loader = loadingLine("Loading leaders…");
+  // CHANGE 3 — HK gets Broadcast + WA Group over all NJY leaders.
+  view.append(broadcastAndWaGroupNav());
+  const loader = loadingLine(t("team.loading_leaders"));
   view.append(loader);
   try {
     // KPI tiles first (fast — single query behind the scenes)
     try {
       const s = await api("/api/hk/summary");
+      if (myToken !== routeToken) return;
       const grid = el("div", { class: "tally" });
       grid.append(
         el("div", { class: "cell" }, el("div", { class: "n" }, String(s.total_people)), el("div", { class: "k" }, t("hd.people"))),
@@ -789,6 +1902,7 @@ async function renderHkLeadersList(view) {
       view.append(grid);
     } catch (_) {}
     const { leaders } = await api("/api/hk/leaders");
+    if (myToken !== routeToken) return;
     loader.remove();
     view.append(el("h3", { class: "section" }, t("hd.hk_leaders_list")));
     if (!leaders.length) return view.append(el("p", { class: "hint" }, t("msg.no_coords_hk")));
@@ -804,23 +1918,27 @@ async function renderHkLeadersList(view) {
 function leaderRowCard(l) {
   const activePct = l.coord_count ? Math.round(100 * l.active_coords_today / l.coord_count) : 0;
   const chantedPct = l.assigned ? Math.round(100 * l.chanted_today / l.assigned) : 0;
+  // CHANGE 5 — HK → leader full-mesh: WhatsApp pill next to Open.
+  const rightBtns = el("div", { style: "display:flex;gap:.35rem;align-items:center" });
+  if (l.phone) rightBtns.append(wame(l.phone, t("pill.wa")));
+  rightBtns.append(el("a", { class: "btn", href: `#/leader/${l.user_id}` }, t("btn.open")));
   return el("div", { style: "width:100%;display:grid;grid-template-columns:1fr auto;gap:.5rem;align-items:center" },
     el("div", {},
       el("div", { class: "spread" },
         el("strong", {}, l.name),
-        el("a", { class: "btn", href: `#/leader/${l.user_id}` }, t("btn.open")),
+        rightBtns,
       ),
       el("div", { class: "hint", style: "margin-top:.2rem" },
         `${l.coord_count} ${t("hd.coordinators").toLowerCase()} · ${l.assigned} ${t("hd.people").toLowerCase()}`,
       ),
       el("div", { class: "progress-line", style: "margin-top:.55rem" },
         el("span", {}, t("hd.coords_active_today")),
-        el("span", { class: "fraction" }, `${l.active_coords_today} of ${l.coord_count}`),
+        el("span", { class: "fraction" }, `${l.active_coords_today}${t("team.of_infix")}${l.coord_count}`),
       ),
       el("div", { class: "pbar", "data-mid": String(activePct >= 60 ? 0 : (activePct >= 30 ? 1 : 2)), style: `--pct:${activePct}%` }),
       el("div", { class: "progress-line", style: "margin-top:.4rem" },
         el("span", {}, t("hd.chanted_today")),
-        el("span", { class: "fraction" }, `${l.chanted_today} of ${l.assigned}`),
+        el("span", { class: "fraction" }, `${l.chanted_today}${t("team.of_infix")}${l.assigned}`),
       ),
       el("div", { class: "pbar", "data-mid": String(chantedPct >= 60 ? 0 : (chantedPct >= 30 ? 1 : 2)), style: `--pct:${chantedPct}%` }),
     ),
@@ -831,20 +1949,23 @@ function leaderRowCard(l) {
 // the same coordCard used elsewhere, PLUS an assign button that opens
 // a picker to move coords under this leader.
 async function renderLeaderDrill(leaderId) {
+  const myToken = routeToken;  // BUG 1+2
   const view = $("view");
   const backHref = ME.role === "hk_leader" ? "#/leader" : "#/";
-  const loader = loadingLine("Loading…");
+  const loader = loadingLine(t("team.loading_generic"));
   view.append(loader);
   try {
     const target = await api(`/api/user/${encodeURIComponent(leaderId)}`).catch(() => null);
+    if (myToken !== routeToken) return;
     // Fall back to enumerating leaders if the single-user endpoint isn't there.
     const [{ leaders }, { users }] = await Promise.all([
       api("/api/hk/leaders").catch(() => ({ leaders: [] })),
       api("/api/admin/users").catch(() => ({ users: [] })),
     ]);
+    if (myToken !== routeToken) return;
     const leader = leaders.find(l => l.user_id === leaderId) || {};
     const leaderUser = users.find(u => u.id === leaderId);
-    const name = leader.name || leaderUser?.display_name || leaderUser?.username || "Leader";
+    const name = leader.name || leaderUser?.display_name || leaderUser?.username || t("team.leader_fallback");
     loader.remove();
     view.append(el("div", { class: "spread" },
       el("h2", { class: "section" }, `${name} · ${humanRole("njy_leader")}`),
@@ -873,22 +1994,25 @@ async function renderLeaderDrill(leaderId) {
     const myCoords = users.filter(u => u.role === "njy_coordinator" && u.active && u.manager_user_id === leaderId);
     view.append(el("h3", { class: "section" }, t("hd.currently_assigned")));
     if (!myCoords.length) {
-      view.append(el("p", { class: "hint" }, "No coordinators assigned to this leader yet."));
+      view.append(el("p", { class: "hint" }, t("msg.no_coords_leader_assigned")));
       return;
     }
     // Enrich each with the same shape coordCard expects. Cheapest path:
     // reuse /api/leader/coordinators (HK sees all) and filter.
     try {
       const { coordinators } = await api("/api/leader/coordinators");
+      if (myToken !== routeToken) return;
       const wanted = new Set(myCoords.map(c => c.id));
       const rows = coordinators.filter(c => wanted.has(c.user_id));
       const ul = el("ul", { class: "list" });
       for (const c of rows) ul.append(el("li", {}, coordCard(c)));
       view.append(ul);
     } catch (err) {
+      if (myToken !== routeToken) return;
       view.append(el("p", { class: "error" }, err.message));
     }
   } catch (err) {
+    if (myToken !== routeToken) return;
     loader.remove();
     view.append(el("p", { class: "error" }, err.message));
   }
@@ -936,9 +2060,9 @@ function openAssignCoordsModal(leaderId, leaderName, allUsers) {
     list.append(wrap);
   };
   section(t("hd.currently_assigned"), assigned, true);
-  section("Unassigned ✱", unassigned, false);
+  section(t("team.unassigned_group"), unassigned, false);
   if (otherAssigned.length) {
-    section("Currently under another leader", otherAssigned, false);
+    section(t("team.other_leader_group"), otherAssigned, false);
   }
   box.append(list);
 
@@ -965,7 +2089,7 @@ function openAssignCoordsModal(leaderId, leaderName, allUsers) {
       // Refresh the drill page
       setTimeout(() => { backdrop.remove(); renderRoute(); }, 500);
     } catch (err) {
-      msg.textContent = err.message || "Failed.";
+      msg.textContent = err.message || t("team.failed");
       save.disabled = false;
     }
   });
@@ -993,23 +2117,27 @@ function coordCard(c) {
   const pctConsistent = Math.min(100, Math.round(100 * consistent / denom));
   const midToday = pctToday >= 60 ? 0 : (pctToday >= 30 ? 1 : 2);
   const midConsistent = pctConsistent >= 60 ? 0 : (pctConsistent >= 30 ? 1 : 2);
+  // CHANGE 5 — leader → coord + HK → coord full-mesh: WhatsApp pill next to Open.
+  const coordBtns = el("div", { style: "display:flex;gap:.35rem;align-items:center" });
+  if (c.phone) coordBtns.append(wame(c.phone, t("pill.wa")));
+  coordBtns.append(el("a", { class: "btn", href: `#/user/${c.user_id}` }, t("btn.open")));
   return el("div", { style: "width:100%;display:grid;grid-template-columns:1fr auto;gap:.5rem;align-items:center" },
     el("div", {},
       el("div", { class: "spread" },
         el("strong", {}, c.name),
-        el("a", { class: "btn", href: `#/user/${c.user_id}` }, "Open"),
+        coordBtns,
       ),
       el("div", { class: "hint", style: "margin-top:.2rem" },
-        `${dailyTotal} SKJ daily-committed · ${c.assigned || 0} in whole roll`,
+        `${dailyTotal}${t("team.daily_committed_suffix")}${c.assigned || 0}${t("team.whole_roll_suffix")}`,
       ),
       el("div", { class: "progress-line", style: "margin-top:.55rem" },
-        el("span", { title: "How many of the daily-committed chanters chanted today" }, "SKJ chanted today"),
-        el("span", { class: "fraction" }, `${daily_chanted} of ${dailyTotal}`),
+        el("span", { title: t("team.skj_today_title") }, t("team.skj_today_label")),
+        el("span", { class: "fraction" }, `${daily_chanted}${t("team.of_infix")}${dailyTotal}`),
       ),
       el("div", { class: "pbar", "data-mid": String(midToday), style: `--pct:${pctToday}%` }),
       el("div", { class: "progress-line", style: "margin-top:.4rem" },
-        el("span", { title: "Daily-committed chanters still on the streak. 3+ consecutive missed days = disqualified." }, "Consistency streak"),
-        el("span", { class: "fraction" }, `${consistent} of ${dailyTotal}${disqualified ? ` · ${disqualified} out` : ""}`),
+        el("span", { title: t("team.consistency_title") }, t("team.consistency_label")),
+        el("span", { class: "fraction" }, `${consistent}${t("team.of_infix")}${dailyTotal}${disqualified ? ` · ${disqualified}${t("team.out_suffix")}` : ""}`),
       ),
       el("div", { class: "pbar", "data-mid": String(midConsistent), style: `--pct:${pctConsistent}%` }),
     ),
@@ -1018,12 +2146,14 @@ function coordCard(c) {
 
 // -------------------------------------------------------- HK dashboard ---
 async function renderHkDashboard(view) {
+  const myToken = routeToken;  // BUG 1+2
   view.append(el("h2", { class: "section" }, t("hd.hk_dashboard")));
   view.append(helpBanner(t("help.hk_dashboard")));
-  const loader = loadingLine("Loading dashboard numbers…");
+  const loader = loadingLine(t("team.loading_dashboard"));
   view.append(loader);
   try {
     const s = await api("/api/hk/summary");
+    if (myToken !== routeToken) return;
     loader.remove();
     const grid = el("div", { class: "tally" });
     grid.append(
@@ -1033,9 +2163,10 @@ async function renderHkDashboard(view) {
       el("div", { class: "cell" }, el("div", { class: "n" }, String(s.njy_coordinators)), el("div", { class: "k" }, t("hd.coordinators"))),
     );
     view.append(grid);
-    view.append(el("h2", { class: "section" }, "All coordinators"));
+    view.append(el("h2", { class: "section" }, t("hd.all_coords_title")));
     const { coordinators } = await api("/api/leader/coordinators");
-    if (!coordinators.length) return view.append(el("p", { class: "hint" }, "No coordinators yet. Create some in Admin → Users."));
+    if (myToken !== routeToken) return;
+    if (!coordinators.length) return view.append(el("p", { class: "hint" }, t("msg.no_coords_admin")));
     const ul = el("ul", { class: "list" });
     for (const c of coordinators) {
       ul.append(el("li", {}, coordCard(c)));
@@ -1059,14 +2190,23 @@ async function loadAllUsers() {
 }
 
 async function renderUserDrill(userId) {
+  const myToken = routeToken;  // BUG 1+2
   const view = $("view");
   try {
     const { target, roll, tally } = await api(`/api/user/${encodeURIComponent(userId)}/roll`);
+    if (myToken !== routeToken) return;
     view.append(el("div", { class: "spread" },
       el("h2", { class: "section" }, `${target.name} · ${humanRole(target.role)}`),
-      el("a", { class: "btn", href: ME.role === "hk_leader" ? "#/hk" : "#/leader" }, "← Back"),
+      el("a", { class: "btn", href: ME.role === "hk_leader" ? "#/hk" : "#/leader" }, t("btn.back")),
     ));
     view.append(tallyStrip(tally, ["assigned","chanted_today","followed_up","needs_visit"]));
+    // Download CSV — leader/HK drilling into a coord gets the same
+    // export button (only when there's actually a roll to export).
+    if (roll.length > 0) {
+      const toolbar = el("div", { style: "display:flex;gap:.5rem;flex-wrap:wrap;margin:.4rem 0 .6rem" });
+      toolbar.append(csvDownloadButton(roll, target.name || "coord", "sangha"));
+      view.append(toolbar);
+    }
     view.append(beadLegend());
     view.append(garlandStrip(roll, /* editable */ true));
     view.append(rollListManageable(roll, target.id));
@@ -1095,14 +2235,12 @@ function rollListManageable(roll, currentOwnerUserId) {
     name.innerHTML = esc(r.name) + `<span class="phone">${esc(r.phone || "")}</span>`;
 
     const lifecycle = el("select", { class: "lifecycle", "data-status": r.status || "chanter" },
-      ...LIFECYCLE.map(s => el("option", { value: s, selected: r.status === s ? true : undefined }, s)),
+      ...LIFECYCLE.map(s => el("option", { value: s, selected: r.status === s ? true : undefined }, lifecycleLabel(s))),
     );
 
     const chant = el("button", { class: "chant-tag" + (r.chanted_today ? " on" : "") },
       r.chanted_today ? t("btn.chanted") : t("btn.chant_q"));
-    if (r.status !== "daily") chant.setAttribute("disabled", "");
     chant.addEventListener("click", async () => {
-      if (r.status !== "daily") return;
       const next = !r.chanted_today;
       await api("/api/roll/chant", { method: "POST", body: JSON.stringify({ person_id: r.id, chanted: next }) });
       r.chanted_today = next;
@@ -1119,21 +2257,25 @@ function rollListManageable(roll, currentOwnerUserId) {
         });
         r.status = lifecycle.value;
         lifecycle.dataset.status = r.status;
-        if (r.status === "daily") chant.removeAttribute("disabled");
-        else { chant.setAttribute("disabled", ""); }
       } catch (err) {
-        alert(err.message || "Could not update status");
+        alert(err.message || t("msg.could_not_update_status"));
         lifecycle.value = r.status || "chanter";
       }
     });
 
     const wa = el("a", { class: "wa", href: r.wa_url, target: "_blank", rel: "noopener" }, t("btn.whatsapp"));
+    // Same auto-mark-contacted + undo toast as the coord's own roll —
+    // leader/HK drilling into a coord's roll is still contacting the
+    // same member, so the same status update applies. Server-side auth
+    // check in /api/roll/mark-contacted lets leader/hk act on any
+    // member in their scope (see handlers.js).
+    attachWaAutoMarkContacted(wa, r, rowBead);
 
-    const historyBtn = el("button", { class: "history-btn", title: "Show 14-day chant history" }, "📅");
+    const historyBtn = el("button", { class: "history-btn", title: t("title.chant_history") }, "📅");
     historyBtn.addEventListener("click", async () => {
       const existing = li.querySelector(".history-strip");
       if (existing) { existing.remove(); return; }
-      const strip = await buildHistoryStrip(r.id);
+      const strip = await buildHistoryStrip(r.id, { row: r, chantBtn: chant });
       li.append(strip);
     });
 
@@ -1141,7 +2283,7 @@ function rollListManageable(roll, currentOwnerUserId) {
     ul.append(li);
 
     if (canManage) {
-      const mgr = el("button", { class: "mini-btn" }, "Manage ▾");
+      const mgr = el("button", { class: "mini-btn" }, t("btn.manage"));
       li.append(mgr);
       mgr.addEventListener("click", async () => {
         const existing = li.querySelector(".manage");
@@ -1171,7 +2313,7 @@ async function buildManagePanel(person, currentOwnerUserId, onDone) {
     userSel.innerHTML = "";
     const filtered = users.filter(u => u.role === roleSel.value && u.active);
     if (!filtered.length) {
-      userSel.append(el("option", { value: "" }, "— no active users in this role —"));
+      userSel.append(el("option", { value: "" }, "- no active users in this role -"));
       return;
     }
     filtered.forEach(u => {
@@ -1182,49 +2324,49 @@ async function buildManagePanel(person, currentOwnerUserId, onDone) {
   roleSel.addEventListener("change", fillUserSel);
   fillUserSel();
 
-  const assignBtn = el("button", { class: "mini-btn" }, "Move");
+  const assignBtn = el("button", { class: "mini-btn" }, t("btn.move_short"));
   assignBtn.addEventListener("click", async () => {
-    if (!userSel.value) return alert("Pick a user to move this person to.");
+    if (!userSel.value) return alert(t("team.pick_user_move"));
     try {
       await api(`/api/person/${person.id}/assign`, {
         method: "POST", body: JSON.stringify({ assigned_to_user_id: userSel.value }),
       });
-      alert("Moved. Refreshing.");
+      alert(t("team.moved_refreshing"));
       renderRoute();
     } catch (err) { alert(err.message); }
   });
   panel.append(el("div", {},
-    el("label", {}, "Reassign — role"), roleSel,
-    el("label", { style: "margin-top:.4rem" }, "then pick who"), userSel,
+    el("label", {}, t("hd.reassign_role")), roleSel,
+    el("label", { style: "margin-top:.4rem" }, t("hd.then_pick")), userSel,
     el("div", { style: "margin-top:.4rem" }, assignBtn),
   ));
 
   // Status change
   const statusSel = el("select", {},
     ...["chanter","qualified","daily","njy1","njy2","njy3","manjari","bv_member","dropped"]
-      .map(s => el("option", { value: s, selected: person.status === s ? true : undefined }, s)),
+      .map(s => el("option", { value: s, selected: person.status === s ? true : undefined }, lifecycleLabel(s) || (s === "qualified" ? "Qualified" : s))),
   );
-  const statusBtn = el("button", { class: "mini-btn" }, "Set status");
+  const statusBtn = el("button", { class: "mini-btn" }, t("btn.set_status_short"));
   statusBtn.addEventListener("click", async () => {
     try {
       await api(`/api/person/${person.id}/status`, {
         method: "POST", body: JSON.stringify({ status: statusSel.value }),
       });
-      alert(`Status now: ${statusSel.value}`);
+      alert(`${t("team.status_now_prefix")}${statusSel.value}`);
     } catch (err) { alert(err.message); }
   });
   panel.append(el("div", {},
-    el("label", {}, "Lifecycle status"), statusSel,
+    el("label", {}, t("hd.lifecycle_status")), statusSel,
     el("div", { style: "margin-top:.4rem" }, statusBtn),
   ));
 
   // Delete
-  const del = el("button", { class: "danger" }, "Delete this person");
+  const del = el("button", { class: "danger" }, t("btn.delete_person"));
   del.addEventListener("click", async () => {
-    if (!confirm(`Delete ${person.name}? This is a soft-delete — history is kept, but they will no longer appear in active lists.`)) return;
+    if (!confirm(`${t("team.delete_confirm_prefix")}${person.name}${t("team.delete_confirm_suffix")}`)) return;
     try {
       await api(`/api/member/${person.id}`, { method: "DELETE" });
-      alert("Deleted.");
+      alert(t("team.deleted"));
       renderRoute();
     } catch (err) { alert(err.message); }
   });
@@ -1234,14 +2376,21 @@ async function buildManagePanel(person, currentOwnerUserId, onDone) {
 
 // -------------------------------------------------------- duties ---
 async function renderDuties(view) {
+  const myToken = routeToken;  // BUG 1+2
   view.append(el("h2", { class: "section" }, t("nav.duties")));
   view.append(helpBanner(t("help.duties")));
+  if (!can("duties_view_list")) {
+    view.append(el("p", { class: "hint" }, t("msg.no_access_duties")));
+    return;
+  }
   try {
     const { duties } = await api("/api/duties");
-    if (!duties.length) return view.append(el("p", { class: "hint" }, "No pending duties. Duties are auto-generated from the BV Action Timeline as roles get assigned. (Auto-generator not yet built — HK Leader can add duties manually via SQL for now.)"));
+    if (myToken !== routeToken) return;
+    if (!duties.length) return view.append(el("p", { class: "hint" }, t("msg.no_pending_duties")));
     const ul = el("ul", { class: "list" });
     for (const d of duties) {
-      const done = el("button", { class: "primary" }, "Done");
+      const done = el("button", { class: "primary" }, t("btn.done_short"));
+      if (!can("duties_mark_done")) done.hidden = true;
       done.addEventListener("click", async () => {
         await api(`/api/duties/${d.id}/done`, { method: "POST" });
         renderRoute();
@@ -1251,11 +2400,11 @@ async function renderDuties(view) {
           el("div", { class: "hint" }, `due ${d.due_date}${d.notes ? " · " + esc(d.notes) : ""}`)),
         el("div", {}), done,
       );
-      // HK Leader also gets a delete option (mis-generated duty cleanup)
-      if (ME.role === "hk_leader") {
-        const del = el("button", { class: "danger", style: "margin-left:.4rem" }, "Delete");
+      // Delete option (gated: duties_delete — HK-only by default)
+      if (can("duties_delete")) {
+        const del = el("button", { class: "danger", style: "margin-left:.4rem" }, t("btn.delete_short"));
         del.addEventListener("click", async () => {
-          if (!confirm("Delete this duty?")) return;
+          if (!confirm(t("confirm.delete_duty"))) return;
           try {
             await api(`/api/duties/${d.id}`, { method: "DELETE" });
             renderRoute();
@@ -1274,12 +2423,18 @@ async function renderDuties(view) {
 // -------------------------------------------- events list clickable ---
 // Each row links to its per-event attendance page.
 async function renderEvents(view) {
+  const myToken = routeToken;  // BUG 1+2
   view.innerHTML = "";
   view.append(el("h2", { class: "section" }, t("hd.events")));
   view.append(helpBanner(t("help.events")));
+  if (!can("events_view_list")) {
+    view.append(el("p", { class: "hint" }, t("msg.no_access_events")));
+    return;
+  }
   try {
     const { events } = await api("/api/events");
-    if (!events.length) return view.append(el("p", { class: "hint" }, "No events yet. HK Leader can create them in Admin → Events."));
+    if (myToken !== routeToken) return;
+    if (!events.length) return view.append(el("p", { class: "hint" }, t("msg.no_events")));
     const ul = el("ul", { class: "list" });
     for (const ev of events) {
       ul.append(el("li", {},
@@ -1297,23 +2452,25 @@ async function renderEvents(view) {
 
 // ----------------------------------------- per-event attendance ---
 async function renderEventAttendance(eventId) {
+  const myToken = routeToken;  // BUG 1+2
   const view = $("view");
   try {
     const { event, attended_ids, attended_count } = await api(`/api/events/${encodeURIComponent(eventId)}`);
+    if (myToken !== routeToken) return;
     view.append(el("div", { class: "spread" },
       el("div", {}, el("h2", { class: "section" }, event.name),
         el("div", { class: "hint" }, `${event.kind} · ${event.event_date}${event.venue ? " · " + esc(event.venue) : ""}`)),
-      el("a", { class: "btn", href: "#/events" }, "← Back"),
+      el("a", { class: "btn", href: "#/events" }, t("btn.back")),
     ));
     const attendedSet = new Set(attended_ids);
 
     const tally = el("div", { class: "tally" });
     const capCell = el("div", { class: "cell" },
-      el("div", { class: "n" }, String(event.capacity || "—")),
-      el("div", { class: "k" }, "Capacity"));
+      el("div", { class: "n" }, String(event.capacity || "-")),
+      el("div", { class: "k" }, t("ev.capacity_label")));
     const nCell = el("div", { class: "cell" },
       el("div", { class: "n", id: "att-n" }, String(attended_count)),
-      el("div", { class: "k" }, "Attended"));
+      el("div", { class: "k" }, t("ev.attended_label")));
     tally.append(nCell, capCell);
     view.append(tally);
 
@@ -1322,12 +2479,13 @@ async function renderEventAttendance(eventId) {
     // checklist. Coordinators can only expand their own row (server
     // enforces via /api/user/:userId/roll access rules).
     const breakdown = (arguments && (await api(`/api/events/${encodeURIComponent(eventId)}`)).breakdown) || [];
+    if (myToken !== routeToken) return;
     if (breakdown.length) {
       const card = el("div", { class: "card" });
-      card.append(el("h3", { class: "section" }, "Attendance by coordinator"));
+      card.append(el("h3", { class: "section" }, t("hd.attendance_by_coord")));
       card.append(el("p", { class: "hint" }, ME.role === "njy_coordinator"
-        ? "Tap your row to expand and mark your chanters present."
-        : "Tap any coordinator's row to expand and mark their chanters. You can also use the search fallback below."));
+        ? t("help.attendance_by_coord_coord")
+        : t("help.attendance_by_coord_leader")));
       const bul = el("ul", { class: "list" });
       for (const b of breakdown) {
         // Progress bar measured against the coord's real roll size,
@@ -1343,12 +2501,12 @@ async function renderEventAttendance(eventId) {
           "aria-expanded": "false",
         },
           el("div", { class: "spread" },
-            el("strong", {}, b.name + (isSelf ? " (you)" : "")),
-            el("span", { class: "hint" }, `${b.attended}/${b.assigned} in roll · tap to expand`),
+            el("strong", {}, b.name + (isSelf ? t("ev.you_suffix") : "")),
+            el("span", { class: "hint" }, `${b.attended}/${b.assigned}${t("ev.in_roll_expand_suffix")}`),
           ),
           el("div", { class: "progress-line", style: "margin-top:.4rem" },
-            el("span", {}, "Attended"),
-            el("span", { class: "fraction" }, `${b.attended} of ${b.assigned || 0}`),
+            el("span", {}, t("ev.attended_label")),
+            el("span", { class: "fraction" }, `${b.attended}${t("ev.attendance_of_infix")}${b.assigned || 0}`),
           ),
           el("div", { class: "pbar", "data-mid": String(mid), style: `--pct:${pct}%` }),
         );
@@ -1363,11 +2521,11 @@ async function renderEventAttendance(eventId) {
               for (const p of roll) {
                 const isOn = attendedSet.has(p.id);
                 const bd = bead(isOn ? "green" : "white", null);
-                bd.title = isOn ? "attended" : "not attended";
+                bd.title = isOn ? t("ev.tooltip_attended") : t("ev.tooltip_not_attended");
                 const nameEl = el("div", { class: "name" });
                 nameEl.innerHTML = esc(p.name) + `<span class="phone">${esc(p.phone || "")}</span>`;
                 const toggle = el("button", { class: "chant-tag" + (isOn ? " on" : "") },
-                  isOn ? "✓ Present · tap to undo" : "Mark present");
+                  isOn ? t("ev.present_undo") : t("ev.mark_present"));
                 toggle.addEventListener("click", async (ev) => {
                   ev.stopPropagation();
                   const next = !attendedSet.has(p.id);
@@ -1377,7 +2535,7 @@ async function renderEventAttendance(eventId) {
                     });
                     if (next) attendedSet.add(p.id); else attendedSet.delete(p.id);
                     toggle.className = "chant-tag" + (next ? " on" : "");
-                    toggle.textContent = next ? "✓ Present · tap to undo" : "Mark present";
+                    toggle.textContent = next ? t("ev.present_undo") : t("ev.mark_present");
                     bd.dataset.color = next ? "green" : "white";
                     $("att-n").textContent = String(attendedSet.size);
                   } catch (err) { alert(err.message); }
@@ -1388,8 +2546,8 @@ async function renderEventAttendance(eventId) {
               body.dataset.loaded = "1";
             } catch (err) {
               body.append(el("p", { class: "hint" }, err.status === 403
-                ? "You can't mark attendance on someone else's roll. This coordinator will mark their own people."
-                : "Could not load roll: " + err.message));
+                ? t("ev.cant_mark_other")
+                : t("ev.could_not_load_roll") + err.message));
               body.dataset.loaded = "1";
             }
           }
@@ -1406,9 +2564,9 @@ async function renderEventAttendance(eventId) {
 
     const searchCard = el("div", { class: "card" });
     searchCard.append(
-      el("h3", { class: "section" }, "Search & mark (alternative)"),
-      el("p", { class: "hint" }, "For walk-in attendees whose coordinator you don't know. Type at least 2 characters — matches name or phone digits."),
-      formField("Search", el("input", { id: "att-q", placeholder: "Ravi   or   9999000001", autocapitalize: "none", autocorrect: "off" })),
+      el("h3", { class: "section" }, t("hd.search_mark")),
+      el("p", { class: "hint" }, t("help.search_mark")),
+      formField(t("field.search"), el("input", { id: "att-q", placeholder: t("ev.ph_search"), autocapitalize: "none", autocorrect: "off" })),
     );
     const results = el("ul", { class: "roll", id: "att-results" });
     searchCard.append(results);
@@ -1419,14 +2577,14 @@ async function renderEventAttendance(eventId) {
       results.innerHTML = "";
       if (q.length < 2) return;
       const { people } = await api(`/api/people/search?q=${encodeURIComponent(q)}`);
-      if (!people.length) { results.append(el("li", {}, el("span", { class: "hint" }, "No match."))); return; }
+      if (!people.length) { results.append(el("li", {}, el("span", { class: "hint" }, t("ev.no_match")))); return; }
       for (const p of people) {
         const isOn = attendedSet.has(p.id);
         const b = bead(isOn ? 2 : 0, null);
-        b.title = isOn ? "attended" : "not attended";
+        b.title = isOn ? t("ev.tooltip_attended") : t("ev.tooltip_not_attended");
         const name = el("div", { class: "name", html: esc(p.name) + `<span class="phone">${esc(p.phone || "")}</span>` });
         const toggle = el("button", { class: "chant-tag" + (isOn ? " on" : "") },
-          isOn ? "✓ Present · tap to undo" : "Mark present");
+          isOn ? t("ev.present_undo") : t("ev.mark_present"));
         toggle.addEventListener("click", async () => {
           const next = !attendedSet.has(p.id);
           try {
@@ -1435,7 +2593,7 @@ async function renderEventAttendance(eventId) {
             });
             if (next) attendedSet.add(p.id); else attendedSet.delete(p.id);
             toggle.className = "chant-tag" + (next ? " on" : "");
-            toggle.textContent = next ? "✓ Present · tap to undo" : "Mark present";
+            toggle.textContent = next ? t("ev.present_undo") : t("ev.mark_present");
             b.dataset.color = next ? "green" : "white";
             $("att-n").textContent = String(attendedSet.size);
           } catch (err) { alert(err.message); }
@@ -1466,7 +2624,7 @@ function loadXlsx() {
     s.src = "https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js";
     s.async = true;
     s.onload = () => resolve(window.XLSX);
-    s.onerror = () => reject(new Error("Could not load Excel parser (offline?)"));
+    s.onerror = () => reject(new Error(t("xl.load_err")));
     document.head.appendChild(s);
   });
   return _xlsxPromise;
@@ -1540,18 +2698,21 @@ async function readSpreadsheetFile(file) {
 //
 // mapRow(rowObj) → { name, mobile, pincode, ... } (or whatever the API
 // expects). onCommit(mappedRows) does the actual API call.
-function excelUploadWidget({ helperText, mapRow, onCommit, templateBuilder, templateLabel, previewCols, isValidRow, emptyMessage, previewRow }) {
+function excelUploadWidget({ helperText, mapRow, onCommit, templateBuilder, templateLabel, previewCols, isValidRow, emptyMessage, previewRow, templateGateKey, commitGateKey }) {
   const wrap = el("div", {});
   const tplLabel = templateLabel || t("btn.download_template");
   const tplBtn = el("button", { type: "button", class: "ghost" }, tplLabel);
+  // Hide template-download button if caller wired a gate that this role
+  // can't access. Same for the commit button below.
+  if (templateGateKey && !can(templateGateKey)) tplBtn.hidden = true;
   tplBtn.addEventListener("click", async () => {
     tplBtn.disabled = true;
-    tplBtn.textContent = "Generating…";
+    tplBtn.textContent = t("xl.generating");
     try {
       await (templateBuilder || downloadXlsxTemplate)();
       tplBtn.textContent = tplLabel;
     } catch (err) {
-      tplBtn.textContent = "Failed — try again";
+      tplBtn.textContent = t("xl.failed_try_again");
     } finally {
       tplBtn.disabled = false;
     }
@@ -1559,12 +2720,13 @@ function excelUploadWidget({ helperText, mapRow, onCommit, templateBuilder, temp
   wrap.append(
     el("p", { class: "hint" }, helperText),
     el("p", {}, tplBtn,
-      el("span", { class: "hint" }, " — mobile column is pre-formatted as text, so 10-digit numbers keep their form. Fill your rows in Excel, save, then upload."),
+      el("span", { class: "hint" }, t("xl.helper_suffix")),
     ),
   );
   const fileInput = el("input", { type: "file", accept: ".xlsx,.xls,.csv" });
   const previewBox = el("div", { style: "margin-top:.7rem" });
-  const commitBtn = el("button", { class: "primary", type: "button", disabled: true }, "Confirm import");
+  const commitBtn = el("button", { class: "primary", type: "button", disabled: true }, t("btn.confirm"));
+  if (commitGateKey && !can(commitGateKey)) commitBtn.hidden = true;
   const msg = el("span", { class: "hint", style: "margin-left:.6rem" });
 
   let parsedRows = [];
@@ -1573,7 +2735,7 @@ function excelUploadWidget({ helperText, mapRow, onCommit, templateBuilder, temp
     previewBox.innerHTML = "";
     commitBtn.disabled = true;
     if (!fileInput.files[0]) return;
-    msg.textContent = "Parsing…";
+    msg.textContent = t("msg.parsing");
     try {
       const raw = await readSpreadsheetFile(fileInput.files[0]);
       const rowIsValid = isValidRow || ((r) => r.name && r.mobile);
@@ -1605,19 +2767,19 @@ function excelUploadWidget({ helperText, mapRow, onCommit, templateBuilder, temp
         // eyeball spelling issues (e.g. "Coupon_no" vs "coupon_no").
         const headers = raw[0] ? Object.keys(raw[0]) : [];
         previewBox.append(el("p", { class: "error" }, emptyMessage
-          || "No usable rows found. Make sure the file has 'name' and 'mobile' columns."));
+          || t("xl.no_usable_default")));
         if (headers.length) {
           previewBox.append(el("p", { class: "hint", style: "font-family:var(--font-mono);font-size:.75rem;color:var(--muted)" },
-            "Headers found in the file: ", el("code", {}, headers.join(", "))));
+            t("xl.headers_prefix"), el("code", {}, headers.join(", "))));
         }
         msg.textContent = "";
         return;
       }
-      msg.textContent = `Parsed ${parsedRows.length} row(s). Preview:`;
+      msg.textContent = `${t("xl.parsed_prefix")}${parsedRows.length}${t("xl.parsed_suffix")}`;
       const table = el("table", { style: "width:100%;border-collapse:collapse;font-size:.85rem;margin-top:.4rem" });
       // Default preview is chanter-shaped; each caller can override with
       // previewCols (header labels) + previewRow (row -> [cell values]).
-      const cols = previewCols || ["Name", "Mobile", "Pincode"];
+      const cols = previewCols || [t("xl.col_name"), t("xl.col_mobile"), t("xl.col_pincode")];
       const rowFn = previewRow || ((r) => [r.name || "", r.mobile || "", r.pincode || ""]);
       const head = el("tr", {}, ...cols.map(c =>
         el("th", { style: "text-align:left;border-bottom:1px solid var(--line);padding:.3rem" }, c)));
@@ -1629,10 +2791,10 @@ function excelUploadWidget({ helperText, mapRow, onCommit, templateBuilder, temp
         ));
       });
       previewBox.append(table);
-      if (parsedRows.length > 8) previewBox.append(el("p", { class: "hint" }, `…and ${parsedRows.length - 8} more.`));
+      if (parsedRows.length > 8) previewBox.append(el("p", { class: "hint" }, `${t("xl.and_more_prefix")}${parsedRows.length - 8}${t("xl.and_more_suffix")}`));
       commitBtn.disabled = false;
     } catch (err) {
-      previewBox.append(el("p", { class: "error" }, err.message || "Could not read the file."));
+      previewBox.append(el("p", { class: "error" }, err.message || t("xl.could_not_read")));
       msg.textContent = "";
     }
   });
@@ -1640,27 +2802,27 @@ function excelUploadWidget({ helperText, mapRow, onCommit, templateBuilder, temp
   const errBox = el("div", { style: "margin-top:.6rem" });
   commitBtn.addEventListener("click", async () => {
     commitBtn.disabled = true;
-    msg.textContent = "Importing…";
+    msg.textContent = t("msg.importing");
     errBox.innerHTML = "";
     try {
       const result = await onCommit(parsedRows);
       const created = result.created ?? parsedRows.length;
       const errs = result.errors || [];
-      msg.textContent = `Imported ${created}${errs.length ? ` · ${errs.length} row error(s)` : ""}`;
+      msg.textContent = `${t("xl.imported_prefix")}${created}${errs.length ? `${t("xl.errors_middle")}${errs.length}${t("xl.errors_suffix")}` : ""}`;
 
       // Case A — some rows failed on the backend. Render each with a
       // friendly reason (humanizeError translates codes like
       // "username_taken" → "That username is already used…").
       if (errs.length) {
         const card = el("div", { class: "card", style: "border-color:#c02020;background:#fff5f5;margin-top:.5rem" });
-        card.append(el("h4", { style: "color:#c02020;margin:0 0 .3rem" }, `${errs.length} row(s) rejected by the server:`));
+        card.append(el("h4", { style: "color:#c02020;margin:0 0 .3rem" }, `${errs.length}${t("xl.rejected_suffix")}`));
         const ul = el("ul", { style: "margin:.2rem 0 0;padding-left:1.2rem;font-size:.85rem" });
         errs.slice(0, 20).forEach(e => {
           const label = e.row?.username || e.username || e.row?.name || e.name || e.row?.legal_name || e.legal_name || `row #${(e.index ?? "?") + 1}`;
           const rawReason = e.error || e.reason || (e.message ? e.message : "");
           const friendly = humanizeError({ body: { error: rawReason }, status: 400 });
           ul.append(el("li", { style: "margin-bottom:.2rem" },
-            el("strong", {}, label), " — ",
+            el("strong", {}, label), " - ",
             el("span", {}, friendly),
             el("span", { class: "hint", style: "margin-left:.4rem;font-family:var(--font-mono);font-size:.7rem" }, `[${rawReason}]`),
           ));
@@ -1678,11 +2840,8 @@ function excelUploadWidget({ helperText, mapRow, onCommit, templateBuilder, temp
       // endpoint returned an unexpected shape). Surface it loudly.
       if (created === 0 && !errs.length) {
         const card = el("div", { class: "card", style: "border-color:#c07a00;background:#fff8ee;margin-top:.5rem" });
-        card.append(el("h4", { style: "color:#c07a00;margin:0 0 .3rem" }, "0 rows imported, but the server didn't return any row errors."));
-        card.append(el("p", { style: "margin:0;font-size:.85rem" },
-          "This usually means: (1) the file's rows didn't map to any usable data, (2) they were all duplicates the server silently skipped, or (3) the endpoint returned an unexpected shape. ",
-          "Open the browser console (F12) for full request/response detail — every API call logs there now.",
-        ));
+        card.append(el("h4", { style: "color:#c07a00;margin:0 0 .3rem" }, t("xl.zero_hd")));
+        card.append(el("p", { style: "margin:0;font-size:.85rem" }, t("xl.zero_body")));
         errBox.append(card);
       }
 
@@ -1694,9 +2853,9 @@ function excelUploadWidget({ helperText, mapRow, onCommit, templateBuilder, temp
       // Whole-request failure (network, 500, 403, etc). Show friendly
       // message on-screen AND full detail in the error box + console.
       const friendly = humanizeError(err);
-      msg.textContent = "Import failed: " + friendly;
+      msg.textContent = t("xl.import_failed_prefix") + friendly;
       const card = el("div", { class: "card", style: "border-color:#c02020;background:#fff5f5;margin-top:.5rem" });
-      card.append(el("h4", { style: "color:#c02020;margin:0 0 .3rem" }, "Import failed"));
+      card.append(el("h4", { style: "color:#c02020;margin:0 0 .3rem" }, t("msg.error_prefix").replace(":","")));
       card.append(el("p", { style: "margin:0 0 .3rem;font-size:.9rem" }, friendly));
       const detail = err.body?.error || err.message || "unknown";
       card.append(el("p", { class: "hint", style: "margin:0;font-family:var(--font-mono);font-size:.75rem" },
@@ -1723,38 +2882,38 @@ async function renderSadhana(personId) {
   const view = $("view");
   if (!personId) return renderSadhanaBrowse(view);
   view.append(el("div", { class: "spread" },
-    el("h2", { class: "section" }, "Sadhana Chart · daily entry"),
-    el("a", { class: "btn", href: "#/sadhana" }, "← Browse"),
+    el("h2", { class: "section" }, t("hd.sadhana_daily_entry")),
+    el("a", { class: "btn", href: "#/sadhana" }, t("sd.back_browse")),
   ));
-  view.append(el("p", { class: "hint" }, "The 124-pt/day chart from the Bhakti-Vrksa manual. Chanting points auto-compute from time-of-day round buckets: ×4 before 7am, ×3 7–8am, ×2 8–10am, ×1 after 10am."));
+  view.append(el("p", { class: "hint" }, t("help.sadhana_daily")));
   const card = el("form", { class: "card", method: "post", action: "javascript:void(0)" });
   const today = new Date().toISOString().slice(0, 10);
   card.append(
-    formField("Person id", el("input", { id: "sd-person", value: personId || "", required: true, readonly: true })),
-    formField("Date", el("input", { id: "sd-date", type: "date", value: today })),
+    formField(t("sd.field_person_id"), el("input", { id: "sd-person", value: personId || "", required: true, readonly: true })),
+    formField(t("sd.field_date"), el("input", { id: "sd-date", type: "date", value: today })),
     el("div", { class: "grid2" },
-      formField("Wake-up time (HH:MM)", el("input", { id: "sd-wake", placeholder: "05:15" })),
-      formField("Wake-up pts", el("input", { id: "sd-wake-pts", type: "number", min: "0", max: "10", value: "0" })),
+      formField(t("sd.field_wakeup_time"), el("input", { id: "sd-wake", placeholder: t("sd.ph_wakeup") })),
+      formField(t("sd.field_wakeup_pts"), el("input", { id: "sd-wake-pts", type: "number", min: "0", max: "10", value: "0" })),
     ),
-    formField("Mangala-arati pts (0 or 10)", el("input", { id: "sd-mangala", type: "number", value: "0", min: "0", max: "10" })),
-    el("h3", { class: "section" }, "Rounds chanted"),
+    formField(t("sd.field_mangala"), el("input", { id: "sd-mangala", type: "number", value: "0", min: "0", max: "10" })),
+    el("h3", { class: "section" }, t("hd.rounds_chanted")),
     el("div", { class: "grid2" },
-      formField("Before 7am (×4)", el("input", { id: "sd-r-1", type: "number", value: "0", min: "0" })),
-      formField("7–8am (×3)", el("input", { id: "sd-r-2", type: "number", value: "0", min: "0" })),
-      formField("8–10am (×2)", el("input", { id: "sd-r-3", type: "number", value: "0", min: "0" })),
-      formField("After 10am (×1)", el("input", { id: "sd-r-4", type: "number", value: "0", min: "0" })),
+      formField(t("sd.field_before7"), el("input", { id: "sd-r-1", type: "number", value: "0", min: "0" })),
+      formField(t("sd.field_7_8"), el("input", { id: "sd-r-2", type: "number", value: "0", min: "0" })),
+      formField(t("sd.field_8_10"), el("input", { id: "sd-r-3", type: "number", value: "0", min: "0" })),
+      formField(t("sd.field_after10"), el("input", { id: "sd-r-4", type: "number", value: "0", min: "0" })),
     ),
-    el("h3", { class: "section" }, "Sravanam & other seva"),
+    el("h3", { class: "section" }, t("hd.sravanam_seva")),
     el("div", { class: "grid2" },
-      formField("Reading mins", el("input", { id: "sd-read-min", type: "number", value: "0" })),
-      formField("Reading pts", el("input", { id: "sd-read-pts", type: "number", value: "0" })),
-      formField("Hearing mins", el("input", { id: "sd-hear-min", type: "number", value: "0" })),
-      formField("Hearing pts", el("input", { id: "sd-hear-pts", type: "number", value: "0" })),
-      formField("Temple seva pts", el("input", { id: "sd-seva", type: "number", value: "0", max: "10" })),
-      formField("Preaching pts", el("input", { id: "sd-preach", type: "number", value: "0", max: "10" })),
+      formField(t("sd.field_read_min"), el("input", { id: "sd-read-min", type: "number", value: "0" })),
+      formField(t("sd.field_read_pts"), el("input", { id: "sd-read-pts", type: "number", value: "0" })),
+      formField(t("sd.field_hear_min"), el("input", { id: "sd-hear-min", type: "number", value: "0" })),
+      formField(t("sd.field_hear_pts"), el("input", { id: "sd-hear-pts", type: "number", value: "0" })),
+      formField(t("sd.field_seva_pts"), el("input", { id: "sd-seva", type: "number", value: "0", max: "10" })),
+      formField(t("sd.field_preach_pts"), el("input", { id: "sd-preach", type: "number", value: "0", max: "10" })),
     ),
     el("p", { style: "margin-top:1rem" },
-      el("button", { type: "submit", class: "primary" }, "Save entry"),
+      el("button", { type: "submit", class: "primary" }, t("btn.save_entry")),
       " ", el("span", { class: "hint", id: "sd-msg" }),
     ),
   );
@@ -1779,8 +2938,8 @@ async function renderSadhana(personId) {
     };
     try {
       const r = await api("/api/sadhana", { method: "POST", body: JSON.stringify(body) });
-      $("sd-msg").textContent = `Saved · ${r.entry.total_pts} / 124 pts`;
-    } catch (err) { $("sd-msg").textContent = "Error: " + err.message; }
+      $("sd-msg").textContent = `${t("sd.saved_prefix")}${r.entry.total_pts}${t("sd.saved_suffix")}`;
+    } catch (err) { $("sd-msg").textContent = t("sd.error_prefix") + err.message; }
   };
   view.append(card);
 }
@@ -1795,7 +2954,7 @@ function formField(labelText, control) {
 // sign-in page in future.
 function passwordFieldWithEye(id, labelText) {
   const input = el("input", { id, type: "password", required: true, autocomplete: "new-password" });
-  const eye = el("button", { type: "button", class: "eye-btn", "aria-label": "Show / hide password" }, "👁");
+  const eye = el("button", { type: "button", class: "eye-btn", "aria-label": t("aria.show_hide_pw") }, "👁");
   eye.addEventListener("click", () => {
     if (input.type === "password") { input.type = "text"; eye.textContent = "🙈"; }
     else { input.type = "password"; eye.textContent = "👁"; }
@@ -1807,13 +2966,14 @@ function passwordFieldWithEye(id, labelText) {
 
 // -------------------------------------------- sadhana browse mode ---
 async function renderSadhanaBrowse(view) {
-  view.append(el("h2", { class: "section" }, "Sadhana Chart · browse"));
-  view.append(el("p", { class: "hint" }, "Review recent entries filled by BV members and their Servant Leaders. Click any row to see that member's full history."));
+  const myToken = routeToken;  // BUG 1+2
+  view.append(el("h2", { class: "section" }, t("hd.sadhana_browse")));
+  view.append(el("p", { class: "hint" }, t("help.sadhana_browse")));
 
   const search = el("div", { class: "card" });
   search.append(
-    el("h3", { class: "section" }, "Find a member"),
-    formField("Search", el("input", { id: "sd-q", placeholder: "name or phone digits", autocapitalize: "none" })),
+    el("h3", { class: "section" }, t("hd.find_member")),
+    formField(t("field.search"), el("input", { id: "sd-q", placeholder: t("sd.ph_search"), autocapitalize: "none" })),
     el("ul", { class: "roll", id: "sd-results" }),
   );
   view.append(search);
@@ -1822,35 +2982,36 @@ async function renderSadhanaBrowse(view) {
     const ul = $("sd-results"); ul.innerHTML = "";
     if (q.length < 2) return;
     const { people } = await api(`/api/people/search?q=${encodeURIComponent(q)}`);
-    if (!people.length) return ul.append(el("li", {}, el("span", { class: "hint" }, "No match.")));
+    if (!people.length) return ul.append(el("li", {}, el("span", { class: "hint" }, t("ev.no_match"))));
     for (const p of people) {
       ul.append(el("li", {},
         el("div", { class: "bead-wrap" }, bead(0)),
         el("div", { class: "name", html: esc(p.name) + `<span class="phone">${esc(p.phone || "")}</span>` }),
-        el("a", { class: "wa", href: `#/sadhana/${p.id}` }, "Open"),
+        el("a", { class: "wa", href: `#/sadhana/${p.id}` }, t("sd.open")),
         el("span", {}),
       ));
     }
   }, 250);
   search.querySelector("#sd-q").addEventListener("input", doSearch);
 
-  view.append(el("h3", { class: "section" }, "Recent entries"));
+  view.append(el("h3", { class: "section" }, t("hd.recent_entries")));
   try {
     const { entries } = await api("/api/sadhana?limit=20");
-    if (!entries.length) return view.append(el("p", { class: "hint" }, "No entries yet. Once BV members start filling their charts, they show up here newest-first."));
+    if (myToken !== routeToken) return;
+    if (!entries.length) return view.append(el("p", { class: "hint" }, t("msg.no_sadhana_entries")));
     const ul = el("ul", { class: "list" });
     for (const e of entries) {
       const li = el("li", {},
         el("div", {}, el("strong", {}, e.person_name),
-          el("div", { class: "hint" }, `${e.entry_date} · rounds ${(e.rounds_before_7||0)+(e.rounds_7_8||0)+(e.rounds_8_10||0)+(e.rounds_after_10||0)}`)),
-        el("span", { class: "score" }, `${e.total_pts || 0} / 124`),
+          el("div", { class: "hint" }, `${e.entry_date}${t("sd.rounds_infix")}${(e.rounds_before_7||0)+(e.rounds_7_8||0)+(e.rounds_8_10||0)+(e.rounds_after_10||0)}`)),
+        el("span", { class: "score" }, `${e.total_pts || 0}${t("sd.pts_of_124_suffix")}`),
         el("div", {}),
       );
       const actions = li.lastChild;
-      const open = el("a", { class: "mini-btn", href: `#/sadhana/${e.person_id}` }, "Open");
-      const del = el("button", { class: "danger", style: "margin-left:.4rem" }, "Delete");
+      const open = el("a", { class: "mini-btn", href: `#/sadhana/${e.person_id}` }, t("sd.open"));
+      const del = el("button", { class: "danger", style: "margin-left:.4rem" }, t("sd.delete"));
       del.addEventListener("click", async () => {
-        if (!confirm(`Delete this sadhana entry for ${e.person_name} on ${e.entry_date}?`)) return;
+        if (!confirm(`${t("sd.confirm_delete_prefix")}${e.person_name}${t("sd.confirm_delete_infix")}${e.entry_date}${t("sd.confirm_delete_suffix")}`)) return;
         try {
           await api(`/api/sadhana/${e.id}`, { method: "DELETE" });
           renderRoute();
@@ -1867,21 +3028,18 @@ async function renderSadhanaBrowse(view) {
 
 // -------------------------------------------------- BV structure ---
 async function renderBvStructure(view) {
-  view.append(el("h2", { class: "section" }, "Bhakti-Vrksa structure"));
-  view.append(helpBanner(
-    "The Circle → Sector → BV Group hierarchy for Phase 4 (Feb 2027 " +
-    "onward). Six circles, four sectors each, three BV groups per " +
-    "sector. Right now HK Leader seeds it here; later, Servant Leaders " +
-    "run their own BV groups against it."
-  ));
-  view.append(el("p", { class: "hint" }, "Six named circles from the docs: Krsna, Balarama, Gauranga, Nityananda, Nrsimha, Laksmi. Under Plan 2 (updated): 4 sectors of 3 BV groups each = 72 groups at Week 1, expected to drop to ~50 groups by Week 64. Create/edit groups here."));
+  const myToken = routeToken;  // BUG 1+2
+  view.append(el("h2", { class: "section" }, t("hd.bv_structure")));
+  view.append(helpBanner(t("bv.help_prefix")));
+  view.append(el("p", { class: "hint" }, t("help.bv_structure")));
   try {
     const { circles, sectors, bv_groups } = await api("/api/bv/structure");
-    view.append(el("h3", { class: "section" }, `Circles (${circles.length})`));
+    if (myToken !== routeToken) return;
+    view.append(el("h3", { class: "section" }, `${t("bv.circles_prefix")}${circles.length}${t("bv.count_suffix")}`));
     view.append(structureList(circles));
-    view.append(el("h3", { class: "section" }, `Sectors (${sectors.length})`));
+    view.append(el("h3", { class: "section" }, `${t("bv.sectors_prefix")}${sectors.length}${t("bv.count_suffix")}`));
     view.append(structureList(sectors));
-    view.append(el("h3", { class: "section" }, `BV groups (${bv_groups.length})`));
+    view.append(el("h3", { class: "section" }, `${t("bv.groups_prefix")}${bv_groups.length}${t("bv.count_suffix")}`));
     view.append(structureList(bv_groups));
     view.append(newGroupForm());
   } catch (err) {
@@ -1889,30 +3047,30 @@ async function renderBvStructure(view) {
   }
 }
 function structureList(groups) {
-  if (!groups.length) return el("p", { class: "hint" }, "None yet.");
+  if (!groups.length) return el("p", { class: "hint" }, t("msg.none_yet"));
   const ul = el("ul", { class: "list" });
   for (const g of groups) {
     const li = el("li", {},
       el("div", {}, el("strong", {}, g.name),
         el("div", { class: "hint" }, `${g.kind}${g.meeting_day ? " · " + g.meeting_day : ""}${g.meeting_time ? " " + g.meeting_time : ""}`)),
-      el("span", { class: "pill" }, g.target_strength ? `${g.target_strength} target` : ""),
+      el("span", { class: "pill" }, g.target_strength ? `${g.target_strength}${t("bv.target_suffix")}` : ""),
       el("div", {}),
     );
     const actions = li.lastChild;
-    const editBtn = el("button", { class: "mini-btn" }, "Edit");
-    const delBtn = el("button", { class: "danger", style: "margin-left:.4rem" }, "Delete");
+    const editBtn = el("button", { class: "mini-btn" }, t("btn.edit_short"));
+    const delBtn = el("button", { class: "danger", style: "margin-left:.4rem" }, t("btn.delete_short"));
     actions.append(editBtn, delBtn);
     editBtn.addEventListener("click", () => {
       const existing = li.querySelector(".manage");
       if (existing) { existing.remove(); return; }
       const p = el("div", { class: "manage" },
-        formField("Name", el("input", { id: `ge-name-${g.id}`, value: g.name })),
-        formField("Meeting day", el("input", { id: `ge-day-${g.id}`, value: g.meeting_day || "" })),
-        formField("Meeting time", el("input", { id: `ge-time-${g.id}`, value: g.meeting_time || "" })),
-        formField("Meeting venue", el("input", { id: `ge-venue-${g.id}`, value: g.meeting_venue || "" })),
-        formField("Target strength", el("input", { id: `ge-str-${g.id}`, type: "number", value: g.target_strength || "" })),
+        formField(t("bv.gform_name"), el("input", { id: `ge-name-${g.id}`, value: g.name })),
+        formField(t("bv.gform_day"), el("input", { id: `ge-day-${g.id}`, value: g.meeting_day || "" })),
+        formField(t("bv.gform_time"), el("input", { id: `ge-time-${g.id}`, value: g.meeting_time || "" })),
+        formField(t("bv.gform_venue"), el("input", { id: `ge-venue-${g.id}`, value: g.meeting_venue || "" })),
+        formField(t("bv.gform_target"), el("input", { id: `ge-str-${g.id}`, type: "number", value: g.target_strength || "" })),
       );
-      const save = el("button", { class: "primary" }, "Save");
+      const save = el("button", { class: "primary" }, t("btn.save"));
       save.addEventListener("click", async () => {
         try {
           await api("/api/bv/group", { method: "POST", body: JSON.stringify({
@@ -1929,7 +3087,7 @@ function structureList(groups) {
       li.append(p);
     });
     delBtn.addEventListener("click", async () => {
-      if (!confirm(`Delete group "${g.name}"? Members are unlinked; the group is soft-deleted (history kept). Continue?`)) return;
+      if (!confirm(`${t("bv.delete_confirm_prefix")}${g.name}${t("bv.delete_confirm_suffix")}`)) return;
       try {
         await api(`/api/bv/group/${g.id}`, { method: "DELETE" });
         renderRoute();
@@ -1942,22 +3100,22 @@ function structureList(groups) {
 function newGroupForm() {
   const card = el("form", { class: "card", method: "post", action: "javascript:void(0)" });
   card.append(
-    el("h3", { class: "section" }, "New group"),
-    formField("Name", el("input", { id: "g-name", required: true })),
-    formField("Kind", el("select", { id: "g-kind" },
-      el("option", { value: "bv_group" }, "BV Group"),
-      el("option", { value: "sector" }, "Sector"),
-      el("option", { value: "circle" }, "Circle"),
-      el("option", { value: "manjari" }, "Manjari"),
-      el("option", { value: "njy_group" }, "NJY Group"),
+    el("h3", { class: "section" }, t("hd.new_group")),
+    formField(t("bv.gform_name"), el("input", { id: "g-name", required: true })),
+    formField(t("bv.kind_label"), el("select", { id: "g-kind" },
+      el("option", { value: "bv_group" }, t("bv.kind_bv_group")),
+      el("option", { value: "sector" }, t("bv.kind_sector")),
+      el("option", { value: "circle" }, t("bv.kind_circle")),
+      el("option", { value: "manjari" }, t("bv.kind_manjari")),
+      el("option", { value: "njy_group" }, t("bv.kind_njy_group")),
     )),
     el("div", { class: "grid2" },
-      formField("Meeting day", el("input", { id: "g-day", placeholder: "Sun" })),
-      formField("Meeting time", el("input", { id: "g-time", placeholder: "18:00" })),
+      formField(t("bv.gform_day"), el("input", { id: "g-day", placeholder: t("bv.ph_day") })),
+      formField(t("bv.gform_time"), el("input", { id: "g-time", placeholder: t("bv.ph_time") })),
     ),
-    formField("Venue", el("input", { id: "g-venue" })),
-    formField("Target strength", el("input", { id: "g-strength", type: "number" })),
-    el("p", {}, el("button", { class: "primary", type: "submit" }, "Save group"),
+    formField(t("bv.gform_venue_short"), el("input", { id: "g-venue" })),
+    formField(t("bv.gform_target"), el("input", { id: "g-strength", type: "number" })),
+    el("p", {}, el("button", { class: "primary", type: "submit" }, t("btn.save_group")),
       " ", el("span", { class: "hint", id: "g-msg" })),
   );
   card.onsubmit = async (e) => {
@@ -1970,55 +3128,152 @@ function newGroupForm() {
     };
     try {
       await api("/api/bv/group", { method: "POST", body: JSON.stringify(body) });
-      $("g-msg").textContent = "Saved."; renderRoute();
+      $("g-msg").textContent = t("msg.saved_short"); renderRoute();
     } catch (err) { $("g-msg").textContent = err.message; }
   };
   return card;
 }
 
 // -------------------------------------------------- member details ---
+// ---------------------------------------------------- Members tab ---
+// Top-level searchable list of Members. Coordinators default to their
+// own Sangha (from /api/roll); leaders and HK Leader start empty and
+// use the search box (/api/people/search) to find any member. Each row
+// links to renderMemberDetails for the full editor.
+async function renderMembers(view) {
+  const myToken = routeToken;
+  view.innerHTML = "";
+  view.append(el("h2", { class: "section" }, t("hd.members")));
+  view.append(helpBanner(t("help.members")));
+  if (!can("members_tab")) {
+    view.append(el("p", { class: "hint" }, t("msg.no_access_admin")));
+    return;
+  }
+
+  const searchInput = el("input", {
+    type: "search", id: "members-search",
+    placeholder: t("field.search"),
+    autocomplete: "off", autocapitalize: "none", autocorrect: "off",
+    style: "width:100%;padding:.55rem;border:1px solid var(--line);border-radius:6px;margin-bottom:.6rem",
+  });
+  view.append(searchInput);
+  const listWrap = el("div", { id: "members-list" });
+  view.append(listWrap);
+
+  const renderRows = (people, source) => {
+    if (myToken !== routeToken) return;
+    listWrap.innerHTML = "";
+    if (!people.length) {
+      listWrap.append(el("p", { class: "hint" }, t("hd.members_none")));
+      return;
+    }
+    const ul = el("ul", { class: "list" });
+    for (const p of people) {
+      const meta = [];
+      if (p.phone) meta.push(esc(p.phone));
+      if (p.pincode) meta.push(esc(p.pincode));
+      if (p.status) meta.push(esc(p.status));
+      ul.append(el("li", {},
+        el("div", { style: "flex:1;min-width:0" },
+          el("strong", {}, p.name || p.legal_name || "-"),
+          el("div", { class: "hint" }, meta.join(" · ") || (source === "roll" ? t("team.coordinator_fallback") : "")),
+        ),
+        el("a", { class: "btn", href: `#/member/${encodeURIComponent(p.id)}` }, t("btn.edit")),
+      ));
+    }
+    listWrap.append(ul);
+  };
+
+  // Default view: coord sees their own roll; leader/HK sees a prompt
+  // until they type something.
+  const loadDefault = async () => {
+    if (ME.role === "njy_coordinator") {
+      listWrap.innerHTML = "";
+      listWrap.append(el("p", { class: "hint" }, t("msg.loading")));
+      try {
+        const { roll } = await api("/api/roll");
+        if (myToken !== routeToken) return;
+        renderRows(roll.map(r => ({
+          id: r.id, name: r.name, phone: r.phone,
+          pincode: r.pincode, status: r.status,
+        })), "roll");
+      } catch (err) {
+        if (myToken !== routeToken) return;
+        listWrap.innerHTML = "";
+        listWrap.append(el("p", { class: "error" }, err.message));
+      }
+    } else {
+      listWrap.innerHTML = "";
+      listWrap.append(el("p", { class: "hint" }, t("help.search_mark")));
+    }
+  };
+  loadDefault();
+
+  // Debounced server search (2+ chars). Empty string reverts to default.
+  let debounce = null;
+  searchInput.addEventListener("input", () => {
+    const q = searchInput.value.trim();
+    clearTimeout(debounce);
+    if (!q) { loadDefault(); return; }
+    if (q.length < 2) return;
+    debounce = setTimeout(async () => {
+      try {
+        const { people } = await api(`/api/people/search?q=${encodeURIComponent(q)}`);
+        if (myToken !== routeToken) return;
+        renderRows(people, "search");
+      } catch (err) {
+        if (myToken !== routeToken) return;
+        listWrap.innerHTML = "";
+        listWrap.append(el("p", { class: "error" }, err.message));
+      }
+    }, 250);
+  });
+}
+
 async function renderMemberDetails(personId) {
+  const myToken = routeToken;  // BUG 1+2
   const view = $("view");
-  view.append(el("h2", { class: "section" }, "Member details"));
-  if (!personId) return view.append(el("p", { class: "hint" }, "Open via a person row (feature comes online with BV phase)."));
+  view.append(el("h2", { class: "section" }, t("hd.member_details")));
+  if (!personId) return view.append(el("p", { class: "hint" }, t("msg.open_via_row")));
   try {
     const { person } = await api(`/api/member/${encodeURIComponent(personId)}`);
+    if (myToken !== routeToken) return;
     const card = el("form", { class: "card", method: "post", action: "javascript:void(0)" });
     const F = (id, label, val, extra = {}) =>
       formField(label, el("input", { id, value: val || "", ...extra }));
     card.append(
-      el("h3", { class: "section" }, "Personal"),
-      F("m-name", "Legal name", person.legal_name),
+      el("h3", { class: "section" }, t("hd.personal")),
+      F("m-name", t("md.field_legal_name"), person.legal_name),
       el("div", { class: "grid2" },
-        F("m-gender", "Gender", person.gender, { placeholder: "Male/Female" }),
-        F("m-dob", "DOB", person.dob, { type: "date" }),
+        F("m-gender", t("md.field_gender"), person.gender, { placeholder: t("md.ph_gender") }),
+        F("m-dob", t("md.field_dob"), person.dob, { type: "date" }),
       ),
       el("div", { class: "grid2" },
-        F("m-marital", "Marital status", person.marital_status),
-        F("m-children", "Number of children", person.num_children, { type: "number" }),
+        F("m-marital", t("md.field_marital"), person.marital_status),
+        F("m-children", t("md.field_children"), person.num_children, { type: "number" }),
       ),
-      F("m-spouse", "Spouse name", person.spouse_name),
+      F("m-spouse", t("md.field_spouse_name"), person.spouse_name),
       el("div", { class: "grid2" },
-        F("m-spouse-dob", "Spouse DOB", person.spouse_dob, { type: "date" }),
-        F("m-anniv", "Wedding anniversary", person.wedding_anniversary, { type: "date" }),
+        F("m-spouse-dob", t("md.field_spouse_dob"), person.spouse_dob, { type: "date" }),
+        F("m-anniv", t("md.field_anniv"), person.wedding_anniversary, { type: "date" }),
       ),
-      F("m-addr", "Address", person.address),
+      F("m-addr", t("md.field_address"), person.address),
       el("div", { class: "grid2" },
-        F("m-phone", "Phone", person.phone),
-        F("m-pincode", "Pincode", person.pincode, { placeholder: "e.g. 625001" }),
+        F("m-phone", t("md.field_phone"), person.phone),
+        F("m-pincode", t("field.pincode"), person.pincode, { placeholder: t("md.ph_pincode") }),
       ),
-      F("m-email", "Email", person.email, { type: "email" }),
-      el("h3", { class: "section" }, "Work"),
+      F("m-email", t("md.field_email"), person.email, { type: "email" }),
+      el("h3", { class: "section" }, t("hd.work")),
       el("div", { class: "grid2" },
-        F("m-edu", "Education", person.education),
-        F("m-occ", "Occupation", person.occupation),
-        F("m-org", "Organization", person.organization),
-        F("m-des", "Designation", person.designation),
+        F("m-edu", t("md.field_education"), person.education),
+        F("m-occ", t("md.field_occupation"), person.occupation),
+        F("m-org", t("md.field_organization"), person.organization),
+        F("m-des", t("md.field_designation"), person.designation),
       ),
-      F("m-lang", "Languages known", person.languages_known),
-      el("h3", { class: "section" }, "Notes"),
-      formField("Notes", el("textarea", { id: "m-notes" }, person.notes || "")),
-      el("p", {}, el("button", { class: "primary", type: "submit" }, "Save"),
+      F("m-lang", t("md.field_languages"), person.languages_known),
+      el("h3", { class: "section" }, t("hd.notes")),
+      formField(t("field.notes"), el("textarea", { id: "m-notes" }, person.notes || "")),
+      el("p", {}, el("button", { class: "primary", type: "submit" }, t("btn.save")),
         " ", el("span", { class: "hint", id: "m-msg" })),
     );
     card.onsubmit = async (e) => {
@@ -2040,7 +3295,7 @@ async function renderMemberDetails(personId) {
       };
       try {
         await api(`/api/member/${encodeURIComponent(personId)}`, { method: "POST", body: JSON.stringify(body) });
-        $("m-msg").textContent = "Saved.";
+        $("m-msg").textContent = t("msg.saved_short");
       } catch (err) { $("m-msg").textContent = err.message; }
     };
     view.append(card);
@@ -2052,51 +3307,51 @@ async function renderMemberDetails(personId) {
 // -------------------------------------------------- group report ---
 async function renderGroupReport(groupId) {
   const view = $("view");
-  view.append(el("h2", { class: "section" }, "Group planning sheet"));
-  view.append(el("p", { class: "hint" }, "Periodic report by a Servant Leader (per Bhakti-Vrksa manual). 22 parameters across attendance, shiksha, preaching, temple services."));
-  if (!groupId) return view.append(el("p", { class: "hint" }, "Open with a group id in the URL: #/group-report/<group_id>"));
+  view.append(el("h2", { class: "section" }, t("hd.group_planning")));
+  view.append(el("p", { class: "hint" }, t("help.group_planning")));
+  if (!groupId) return view.append(el("p", { class: "hint" }, t("msg.open_group_id")));
   const num = (id, label) => formField(label, el("input", { id, type: "number", min: "0", value: "0" }));
   const card = el("form", { class: "card", method: "post", action: "javascript:void(0)" });
   card.append(
-    formField("Report date", el("input", { id: "gr-date", type: "date", value: new Date().toISOString().slice(0,10), required: true })),
-    formField("Week number", el("input", { id: "gr-wk", type: "number" })),
-    el("h3", { class: "section" }, "A · Member attendance"),
+    formField(t("gr.field_report_date"), el("input", { id: "gr-date", type: "date", value: new Date().toISOString().slice(0,10), required: true })),
+    formField(t("gr.field_week_no"), el("input", { id: "gr-wk", type: "number" })),
+    el("h3", { class: "section" }, t("hd.member_attendance")),
     el("div", { class: "grid3" },
-      num("gr-avg", "Avg attendance"),
-      num("gr-high", "Highest"),
-      num("gr-irr", "Irregular"),
-      num("gr-child", "Children avg"),
-      num("gr-bvlc", "BVLC avg"),
+      num("gr-avg", t("gr.field_avg_att")),
+      num("gr-high", t("gr.field_highest")),
+      num("gr-irr", t("gr.field_irregular")),
+      num("gr-child", t("gr.field_children_avg")),
+      num("gr-bvlc", t("gr.field_bvlc_avg")),
     ),
-    el("h3", { class: "section" }, "B · Shiksha level"),
+    el("h3", { class: "section" }, t("gr.section_b")),
     el("div", { class: "grid3" },
-      num("gr-brah", "Brahmana init."),
-      num("gr-hari", "Harinama init."),
-      num("gr-guru", "Guru-ashraya"),
-      num("gr-sp", "Prabhupada-ashraya"),
-      num("gr-sadh", "Sadhaka"),
-      num("gr-sev", "Sevaka"),
-      num("gr-shr", "Shraddhavan"),
-      num("gr-pot", "Potential leaders"),
+      num("gr-brah", t("gr.field_brah")),
+      num("gr-hari", t("gr.field_hari")),
+      num("gr-guru", t("gr.field_guru")),
+      num("gr-sp", t("gr.field_sp")),
+      num("gr-sadh", t("gr.field_sadh")),
+      num("gr-sev", t("gr.field_sev")),
+      num("gr-shr", t("gr.field_shr")),
+      num("gr-pot", t("gr.field_pot")),
     ),
-    el("h3", { class: "section" }, "C · Preaching"),
+    el("h3", { class: "section" }, t("gr.section_c")),
     el("div", { class: "grid3" },
-      num("gr-h2h", "House-to-house"),
-      num("gr-nag", "Nagara sankirtan"),
-      num("gr-out", "Outreach"),
+      num("gr-h2h", t("gr.field_h2h")),
+      num("gr-nag", t("gr.field_nag")),
+      num("gr-out", t("gr.field_out")),
     ),
-    formField("Other preaching", el("input", { id: "gr-other-p" })),
-    el("h3", { class: "section" }, "D · Temple services"),
+    formField(t("gr.field_other_p"), el("input", { id: "gr-other-p" })),
+    el("h3", { class: "section" }, t("gr.section_d")),
     el("div", { class: "grid3" },
-      num("gr-eng", "Services engaged"),
-      num("gr-mon", "Monthly contributors"),
-      num("gr-amt", "Amount"),
-      num("gr-life", "Life members"),
+      num("gr-eng", t("gr.field_eng")),
+      num("gr-mon", t("gr.field_mon")),
+      num("gr-amt", t("gr.field_amt")),
+      num("gr-life", t("gr.field_life")),
     ),
-    formField("Service details", el("input", { id: "gr-svc-d" })),
-    formField("Other contribution", el("input", { id: "gr-oth-c" })),
+    formField(t("gr.field_svc_d"), el("input", { id: "gr-svc-d" })),
+    formField(t("gr.field_oth_c"), el("input", { id: "gr-oth-c" })),
     el("p", { style: "margin-top:1rem" },
-      el("button", { class: "primary", type: "submit" }, "Save report"),
+      el("button", { class: "primary", type: "submit" }, t("btn.save_report")),
       " ", el("span", { class: "hint", id: "gr-msg" })),
   );
   card.onsubmit = async (e) => {
@@ -2120,57 +3375,98 @@ async function renderGroupReport(groupId) {
     };
     try {
       await api("/api/group-reports", { method: "POST", body: JSON.stringify(body) });
-      $("gr-msg").textContent = "Saved.";
+      $("gr-msg").textContent = t("msg.saved_short");
     } catch (err) { $("gr-msg").textContent = err.message; }
   };
   view.append(card);
 }
 
 // ---------------------------------------------------- Leaderboard ---
-// Generation token so a stale in-flight fetch doesn't append rows into
-// a view that has already been re-rendered for a different tab.
-let leaderboardGen = 0;
+// See "route token (BUG 1+2)" above — global guard against a stale
+// in-flight fetch appending rows into a view that has since been
+// re-rendered for a different tab. The sort toggle re-invokes this
+// function directly (without going through renderRoute), so it does
+// NOT bump routeToken — that's how intra-page re-renders still work.
 async function renderLeaderboard(kind, rest) {
-  const myGen = ++leaderboardGen;
+  const myToken = routeToken;
   const view = $("view");
-  view.append(el("h2", { class: "section" }, "Leaderboard"));
+  view.innerHTML = "";
+  view.append(el("h2", { class: "section" }, t("hd.leaderboard")));
 
   // Route shape: #/leaderboard/<kind>[/leaders]
   //   kind = "daily" | "overall"
   //   suffix "/leaders" flips to the NJY-Leader board
   // Router passes `kind` as the entire arg after "leaderboard/", which
   // can be "daily/leaders" — split it here so both halves work.
-  const [actualKind, ...suffixParts] = String(kind || "daily").split("/");
-  const suffix = suffixParts.join("/") || (rest || "");
+  let [actualKind, ...suffixParts] = String(kind || "daily").split("/");
+  let suffix = suffixParts.join("/") || (rest || "");
+  // BUG 4: normalize bookmark URLs that put "leaders" in front (or on
+  // its own). #/leaderboard/leaders → land on daily/leaders (the
+  // natural leaders board). #/leaderboard/leaders/daily and
+  // #/leaderboard/leaders/overall → the same kind + leaders board.
+  // Unknown kind → fall through to "daily". Prevents the old shape
+  // fetching /api/leaderboard/leaders/leaders and hanging on 404.
+  if (actualKind === "leaders") {
+    const next = suffixParts[0];
+    actualKind = (next === "daily" || next === "overall") ? next : "daily";
+    suffix = "leaders";
+  } else if (!["daily", "overall"].includes(actualKind)) {
+    actualKind = "daily";
+  }
   const canSeeLeadersBoard = ["hk_leader", "njy_leader"].includes(ME.role);
   const isLeadersBoard = suffix === "leaders" && canSeeLeadersBoard;
 
   const tabs = el("div", { class: "nav", style: "border:none" });
-  const t = (k, label, extra) => el("a", { class: (actualKind === k && !!extra === isLeadersBoard) ? "active" : "",
+  // Local tab-anchor builder — renamed from `t` to avoid shadowing the
+  // global i18n `t()` helper (which also lives in this function scope).
+  const mkTabLink = (k, label, extra) => el("a", { class: (actualKind === k && !!extra === isLeadersBoard) ? "active" : "",
     href: `#/leaderboard/${k}${extra ? "/leaders" : ""}` }, label);
   tabs.append(
-    t("daily", "Coords · Today"),
-    t("overall", "Coords · Overall"),
+    mkTabLink("daily", t("lb.tab_coords_today")),
+    mkTabLink("overall", t("lb.tab_coords_overall")),
   );
   if (canSeeLeadersBoard) {
     tabs.append(
-      t("daily", "Leaders · Today", "leaders"),
-      t("overall", "Leaders · Overall", "leaders"),
+      mkTabLink("daily", t("lb.tab_leaders_today"), "leaders"),
+      mkTabLink("overall", t("lb.tab_leaders_overall"), "leaders"),
     );
   }
-  tabs.append(el("a", { href: "#/points-rules", style: "margin-left:auto" }, "How points work ↗"));
+  tabs.append(el("a", { href: "#/points-rules", style: "margin-left:auto" }, t("lb.how_points_link")));
   view.append(tabs);
 
   const hint = isLeadersBoard
-    ? (actualKind === "daily"
-        ? "NJY Leaders ranked by sum of their coords' today points. Only HK Leader and NJY Leaders see this board."
-        : "NJY Leaders ranked by sum of their coords' Phase-1+2 points. Only HK Leader and NJY Leaders see this board.")
-    : (actualKind === "daily"
-        ? "Coords ranked by today's points — resets every midnight IST. Chant a chanter = +10 · Follow up = +5 · NJY attendance = +50 · Perfect day = +50."
-        : "Coords ranked cumulatively (Phase 1 + Phase 2). Adds Janmashtami entry/commit tier bonuses and milestone bonuses. Tap the rules link for the full matrix.");
+    ? (actualKind === "daily" ? t("lb.hint_leaders_today") : t("lb.hint_leaders_overall"))
+    : (actualKind === "daily" ? t("lb.hint_coords_today") : t("lb.hint_coords_overall"));
   view.append(el("p", { class: "hint" }, hint));
 
-  const loader = el("p", { class: "hint" }, "Loading…");
+  // Sort toggle — only on Leaders board. Persist choice in localStorage
+  // so HK Leader's preference sticks across reloads.
+  let sortMode = "total";
+  if (isLeadersBoard) {
+    try { sortMode = localStorage.getItem("njy-leaders-sort") || "total"; } catch {}
+    const sortRow = el("div", { class: "row", style: "gap:.4rem;margin:.4rem 0" });
+    const mkSortBtn = (mode, label) => {
+      const btn = el("button", {
+        class: sortMode === mode ? "pill on" : "pill",
+        type: "button",
+        style: "cursor:pointer",
+      }, label);
+      btn.addEventListener("click", () => {
+        sortMode = mode;
+        try { localStorage.setItem("njy-leaders-sort", mode); } catch {}
+        renderLeaderboard(kind, rest);   // re-render with new sort
+      });
+      return btn;
+    };
+    sortRow.append(
+      el("span", { class: "hint", style: "align-self:center" }, t("lb.sort_by")),
+      mkSortBtn("total", t("lb.sort_total")),
+      mkSortBtn("avg", t("lb.sort_avg")),
+    );
+    view.append(sortRow);
+  }
+
+  const loader = el("p", { class: "hint" }, t("msg.loading"));
   view.append(loader);
 
   const url = isLeadersBoard
@@ -2178,30 +3474,38 @@ async function renderLeaderboard(kind, rest) {
     : `/api/leaderboard/${actualKind}`;
 
   try {
-    const { rows } = await api(url);
-    if (myGen !== leaderboardGen) return;
+    const { rows: rawRows } = await api(url);
+    if (myToken !== routeToken) return;
     loader.remove();
 
+    // Re-sort leaders board client-side per user's chosen sort mode.
+    let rows = rawRows;
+    if (isLeadersBoard && sortMode === "avg") {
+      rows = [...rawRows].sort((a, b) => (b.pts_per_coord || 0) - (a.pts_per_coord || 0));
+    }
+
     // HK's own summary row on top of the LEADERS board — sum-of-all so
-    // HK Leader sees the whole-org total in one line.
+    // HK Leader sees the whole-org total in one line. Also shows the
+    // whole-org per-coord average when prorated sort is active.
     if (isLeadersBoard && ME.role === "hk_leader" && rows.length) {
       const orgTotal = rows.reduce((s, r) => s + (r.pts || 0), 0);
       const orgCoords = rows.reduce((s, r) => {
         const c = (r.breakdown || []).find(b => b.k === "coords_in_team");
         return s + (c ? c.n : 0);
       }, 0);
+      const orgAvg = orgCoords ? Math.round(orgTotal / orgCoords) : 0;
       const summary = el("div", { class: "card", style: "margin-bottom:.7rem;background:linear-gradient(180deg,var(--tint-responded),var(--tint-followed));border-color:var(--mark-responded)" },
         el("div", { class: "spread" },
-          el("div", {}, el("strong", {}, "🏛 HK Leader · Whole org"),
-            el("div", { class: "hint" }, `${rows.length} NJY Leaders · ${orgCoords} coords`)),
-          el("span", { class: "score" }, `${orgTotal} pts`),
+          el("div", {}, el("strong", {}, t("hd.hk_whole_org")),
+            el("div", { class: "hint" }, `${rows.length} ${t("lb.leaders_summary_prefix")} · ${orgCoords} ${t("lb.leaders_summary_coords")}`)),
+          el("span", { class: "score" }, sortMode === "avg" ? `${orgAvg}${t("lb.suffix_avg")}` : `${orgTotal}${t("lb.suffix_pts")}`),
         ),
       );
       view.append(summary);
     }
 
     if (!rows.length) {
-      return view.append(el("p", { class: "hint" }, isLeadersBoard ? "No NJY Leaders yet." : "No coordinators yet."));
+      return view.append(el("p", { class: "hint" }, isLeadersBoard ? t("msg.no_leaders_yet") : t("msg.no_coords_yet")));
     }
     const ul = el("ul", { class: "list" });
     const medals = ["🥇", "🥈", "🥉"];
@@ -2217,22 +3521,52 @@ async function renderLeaderboard(kind, rest) {
       const openHref = isLeadersBoard
         ? `#/leader/${r.user_id}`
         : `#/profile/${r.user_id}`;
+      // Leaders board: score column shows the composite 3-bucket score
+      // used for ranking. Old "raw pts" available via `raw_team_pts`
+      // when we want to expose it.
+      const scoreText = (isLeadersBoard && sortMode === "avg")
+        ? `${r.pts_per_coord || 0}${t("lb.score_avg_prefix")}${r.total_score || r.pts}${t("lb.score_suffix_score")}`
+        : (isLeadersBoard ? `${r.total_score || r.pts}${t("lb.score_suffix_score")}` : `${r.pts}${t("lb.score_suffix_pts")}`);
+
+      // Build the 3-bucket mini bars for the leaders board only. Each
+      // bar is a .pbar with --pct set from the *_bar (0-100 normalised)
+      // fields the server computed, and a short caption naming the
+      // bucket + raw value so the leader can read the tradeoff at a
+      // glance. Tap the row header to expand the breakdown.
+      let bucketBlock = null;
+      if (isLeadersBoard && (r.total_score != null || r.team_performance != null)) {
+        const barRow = (label, raw, pctBar, suffix) => el("div", { class: "leader-bucket" },
+          el("div", { class: "leader-bucket-hd" },
+            el("span", { class: "hint" }, label),
+            el("span", { class: "hint", style: "font-family:var(--font-mono)" }, `${raw}${suffix || ""}`)),
+          el("div", { class: "pbar", style: `--pct:${Math.max(0, Math.min(100, pctBar || 0))}%` }),
+        );
+        bucketBlock = el("div", { class: "leader-buckets", style: "margin-top:.4rem" },
+          barRow(t("lb.bucket_team_perf"), r.team_performance || 0, r.team_performance_bar || 0, t("lb.suffix_avg")),
+          barRow(t("lb.bucket_team_cov"),   r.team_coverage    || 0, r.team_coverage_bar    || 0, t("lb.pct")),
+          barRow(t("lb.bucket_leader_touch"), r.leader_touch   || 0, r.leader_touch_bar     || 0, t("lb.suffix_pts")),
+        );
+      }
+
       const li = el("li", {},
-        el("div", {}, el("strong", {}, `${label}  ${r.name}`),
-          el("div", { class: "hint", style: "margin-top:.15rem" }, breakdownText || "—")),
-        el("span", { class: "score" }, `${r.pts} pts`),
+        el("div", { style: "flex:1;min-width:0" },
+          el("strong", {}, `${label}  ${r.name}`),
+          el("div", { class: "hint", style: "margin-top:.15rem" }, breakdownText || "-"),
+          bucketBlock,
+        ),
+        el("span", { class: "score" }, scoreText),
         r.user_id === ME.id
-          ? el("a", { class: "pill on", href: openHref, style: "text-decoration:none" }, "you — open")
-          : el("a", { class: "btn", href: openHref }, "Open"),
+          ? el("a", { class: "pill on", href: openHref, style: "text-decoration:none" }, t("lb.you_open"))
+          : el("a", { class: "btn", href: openHref }, t("btn.open")),
       );
       ul.append(li);
     });
     view.append(ul);
   } catch (err) {
-    if (myGen !== leaderboardGen) return;
+    if (myToken !== routeToken) return;
     loader.remove();
     if (err.status === 403) {
-      view.append(el("p", { class: "hint" }, "Leaders leaderboard is only visible to HK Leader and NJY Leaders."));
+      view.append(el("p", { class: "hint" }, t("msg.leaders_lb_restricted")));
     } else {
       view.append(el("p", { class: "error" }, err.message));
     }
@@ -2241,58 +3575,58 @@ async function renderLeaderboard(kind, rest) {
 
 // Turn the internal point-kind slugs into short human labels.
 function prettyPointKind(k) {
-  return ({
-    chanted: "chanted today",
-    follow_up: "follow-ups",
-    njy_attend: "NJY attends",
-    perfect_day: "perfect day",
-    chant_days: "chant days",
-    follow_ups: "follow-ups",
-    njy_attends: "NJY attends",
-    njy_triple: "3-NJY streak",
-    jm_entries: "Janmashtami entries",
-    jm_daily_commits: "daily commits",
-    milestone_35_one_month: "milestone 35 one-month",
-    milestone_16_njy2: "milestone 16 NJY-2",
-    milestone_12_njy3: "milestone 12 NJY-3",
-    coords_in_team: "coords in team",
-    coords_scoring: "coords scoring",
-    sum_of_coord_pts: "team total",
-  })[k] || k.replace(/_/g, " ");
+  const key = "pk." + k;
+  const translated = t(key);
+  return translated !== key ? translated : k.replace(/_/g, " ");
 }
 
 // ---------------------------------------------------- Profile ---
 // A coord's own "how am I doing" page. LeetCode-style transaction view
 // showing every point-earning bucket with its count and total.
 async function renderProfile(userId) {
+  const myToken = routeToken;  // BUG 1+2
   const view = $("view");
   const target = userId || ME.id;
-  view.append(el("h2", { class: "section" }, "Profile"));
-  const loader = el("p", { class: "hint" }, "Loading…");
+  view.append(el("h2", { class: "section" }, t("hd.profile")));
+  const loader = el("p", { class: "hint" }, t("msg.loading"));
   view.append(loader);
   try {
-    // Fetch both boards; find this user's row.
-    const [dailyRes, overallRes] = await Promise.all([
+    // BUG 6: use allSettled so a 403 on either leaderboard (e.g. member
+    // role gated out) doesn't nuke the whole profile page. Treat any
+    // rejected/malformed board as an empty { rows: [] } and show the
+    // rest of the profile.
+    const [dailySettled, overallSettled] = await Promise.allSettled([
       api("/api/leaderboard/daily"),
       api("/api/leaderboard/overall"),
     ]);
+    if (myToken !== routeToken) return;
+    const dailyRes = (dailySettled.status === "fulfilled" && dailySettled.value && Array.isArray(dailySettled.value.rows))
+      ? dailySettled.value : { rows: [] };
+    const overallRes = (overallSettled.status === "fulfilled" && overallSettled.value && Array.isArray(overallSettled.value.rows))
+      ? overallSettled.value : { rows: [] };
+    const boardsUnavailable = dailySettled.status !== "fulfilled" && overallSettled.status !== "fulfilled";
     loader.remove();
     const daily = dailyRes.rows.find(r => r.user_id === target);
     const overall = overallRes.rows.find(r => r.user_id === target);
-    const name = daily?.name || overall?.name || "Coordinator";
-    const dailyRank = dailyRes.rows.findIndex(r => r.user_id === target) + 1;
-    const overallRank = overallRes.rows.findIndex(r => r.user_id === target) + 1;
+    const name = daily?.name || overall?.name || ME.display_name || t("team.coordinator_fallback");
+    const dailyRankIdx = dailyRes.rows.findIndex(r => r.user_id === target);
+    const overallRankIdx = overallRes.rows.findIndex(r => r.user_id === target);
+    const dailyRank = dailyRankIdx >= 0 ? dailyRankIdx + 1 : 0;
+    const overallRank = overallRankIdx >= 0 ? overallRankIdx + 1 : 0;
+    if (boardsUnavailable) {
+      view.append(el("p", { class: "hint" }, t("lb.leaders_unavailable")));
+    }
 
     view.append(el("div", { class: "spread" },
       el("h3", { class: "section", style: "margin:0" }, name),
-      el("a", { class: "btn", href: "#/leaderboard/overall" }, "← Back to leaderboard"),
+      el("a", { class: "btn", href: "#/leaderboard/overall" }, t("lb.back_to_lb")),
     ));
 
     // Show the coord's own NJY Leader so they know who to escalate to.
     // Only meaningful when viewing your OWN profile (userId undefined).
     if (!userId && ME.manager_display_name) {
       view.append(el("p", { class: "hint", style: "margin:.2rem 0 .8rem" },
-        "Your NJY Leader: ", el("strong", {}, ME.manager_display_name),
+        t("hd.your_leader_prefix") + " ", el("strong", {}, ME.manager_display_name),
       ));
     }
 
@@ -2301,27 +3635,27 @@ async function renderProfile(userId) {
     kpis.append(
       el("div", { class: "cell" },
         el("div", { class: "n" }, String(daily?.pts || 0)),
-        el("div", { class: "k" }, "Today's points")),
+        el("div", { class: "k" }, t("lb.kpi_today_pts"))),
       el("div", { class: "cell" },
         el("div", { class: "n" }, String(overall?.pts || 0)),
-        el("div", { class: "k" }, "Overall points")),
+        el("div", { class: "k" }, t("lb.kpi_overall_pts"))),
       el("div", { class: "cell" },
-        el("div", { class: "n" }, dailyRank ? `#${dailyRank}` : "—"),
-        el("div", { class: "k" }, "Rank today")),
+        el("div", { class: "n" }, dailyRank ? `#${dailyRank}` : "-"),
+        el("div", { class: "k" }, t("lb.kpi_rank_today"))),
       el("div", { class: "cell" },
-        el("div", { class: "n" }, overallRank ? `#${overallRank}` : "—"),
-        el("div", { class: "k" }, "Rank overall")),
+        el("div", { class: "n" }, overallRank ? `#${overallRank}` : "-"),
+        el("div", { class: "k" }, t("lb.kpi_rank_overall"))),
     );
     view.append(kpis);
 
     // Two breakdown lists, side by side on desktop / stacked on phone.
     const grid = el("div", { class: "grid2", style: "margin-top:1rem" });
-    grid.append(pointsBreakdownCard("Today", daily?.breakdown));
-    grid.append(pointsBreakdownCard("Overall (P1+P2)", overall?.breakdown));
+    grid.append(pointsBreakdownCard(t("lb.today_col"), daily?.breakdown));
+    grid.append(pointsBreakdownCard(t("lb.overall_col"), overall?.breakdown));
     view.append(grid);
 
     view.append(el("p", { style: "margin-top:1rem" },
-      el("a", { class: "btn", href: "#/points-rules" }, "See full points rules →"),
+      el("a", { class: "btn", href: "#/points-rules" }, t("lb.see_full_rules")),
     ));
   } catch (err) {
     loader.remove();
@@ -2333,7 +3667,7 @@ function pointsBreakdownCard(title, breakdown) {
   const card = el("div", { class: "card", style: "margin:0" });
   card.append(el("h3", { class: "section", style: "margin-top:0" }, title));
   if (!breakdown || !breakdown.length) {
-    card.append(el("p", { class: "hint" }, "No points yet in this scope."));
+    card.append(el("p", { class: "hint" }, t("hd.no_points_scope")));
     return card;
   }
   const total = breakdown.reduce((s, b) => s + (b.pts || 0), 0);
@@ -2341,14 +3675,14 @@ function pointsBreakdownCard(title, breakdown) {
   for (const b of breakdown) {
     ul.append(el("li", {},
       el("div", {}, el("strong", {}, prettyPointKind(b.k)),
-        el("div", { class: "hint" }, b.n ? `${b.n} × action` : "milestone")),
+        el("div", { class: "hint" }, b.n ? `${b.n} ${t("lb.action_suffix")}` : t("lb.milestone"))),
       el("span", { class: "score" }, `+${b.pts}`),
       el("span", {}),
     ));
   }
   card.append(ul);
   card.append(el("p", { style: "text-align:right;font-family:var(--font-mono);color:var(--peacock-deep);margin-top:.4rem" },
-    "Total ", el("strong", {}, `${total} pts`)));
+    t("lb.total") + " ", el("strong", {}, `${total} pts`)));
   return card;
 }
 
@@ -2356,54 +3690,69 @@ function pointsBreakdownCard(title, breakdown) {
 // A static reference — the full "how points are earned" table so
 // coordinators know what to do to climb.
 function renderPointsRules(view) {
-  view.append(el("h2", { class: "section" }, "How points are earned"));
-  view.append(el("p", { class: "hint" }, "This is the full point matrix for Phase 1 and Phase 2. Keep an eye on the milestone bonuses — they're the biggest earners."));
+  view.append(el("h2", { class: "section" }, t("hd.how_points")));
+  view.append(el("p", { class: "hint" }, t("help.how_points")));
 
   const daily = el("div", { class: "card" });
   daily.append(
-    el("h3", { class: "section", style: "margin-top:0" }, "Daily leaderboard (resets midnight IST)"),
+    el("h3", { class: "section", style: "margin-top:0" }, t("rules.daily_hd")),
     el("ul", { class: "list" },
-      pointRow("Chanter marked chanted today", "+10"),
-      pointRow("Follow-up (contact-state change today)", "+5"),
-      pointRow("Chanter attended an NJY event", "+50"),
-      pointRow("Same chanter attended ALL 3 NJYs (one-time)", "+100"),
-      pointRow("Chanter hits 7-day chanting streak", "+20"),
-      pointRow("Chanter hits 30-day chanting streak", "+50"),
-      pointRow("Perfect day — all your chanters chanted today", "+50"),
+      pointRow(t("rules.daily_row1"), "+5"),
+      pointRow(t("rules.daily_row2"), "+10"),
+      pointRow(t("rules.daily_row3"), "+20"),
+      pointRow(t("rules.daily_row4"), "+50"),
+      pointRow(t("rules.daily_row5"), "+50"),
+      pointRow(t("rules.daily_row6"), "+50"),
+      pointRow(t("rules.daily_row7"), "+100"),
     ),
   );
   view.append(daily);
 
   const overall = el("div", { class: "card" });
   overall.append(
-    el("h3", { class: "section", style: "margin-top:0" }, "Overall leaderboard (cumulative P1 + P2)"),
-    el("p", { class: "hint" }, "Everything above accumulates. Plus these one-off Janmashtami-day bonuses:"),
-    el("h3", { class: "section" }, "Janmashtami entries"),
+    el("h3", { class: "section", style: "margin-top:0" }, t("rules.overall_hd")),
+    el("p", { class: "hint" }, t("rules.overall_intro")),
+    // Janmashtami-day-based point rules (Janmashtami Entries + Daily-Chanter
+    // Commits) were removed after the 2026 campaign ended. Historical points
+    // already earned remain in users' totals; new awards no longer fire (see
+    // lib/leaderboard.js). Milestones below are ongoing and stay in effect.
+    el("h3", { class: "section" }, t("rules.milestones_hd")),
     el("ul", { class: "list" },
-      pointRow("Each new person entered", "+5"),
-      pointRow("Tier bonus at 25 entries", "+25"),
-      pointRow("Tier bonus at 50 entries", "+50"),
-      pointRow("Tier bonus at 75 entries", "+75"),
-      pointRow("Tier bonus at 100 entries", "+100"),
-    ),
-    el("h3", { class: "section" }, "Daily-chanter commits (on Janmashtami)"),
-    el("ul", { class: "list" },
-      pointRow("Each person set to daily on Janmashtami", "+10"),
-      pointRow("Tier bonus at 15 daily commits", "+30"),
-      pointRow("Tier bonus at 25 daily commits", "+50"),
-      pointRow("Tier bonus at 50 daily commits", "+100"),
-    ),
-    el("h3", { class: "section" }, "Milestones (one-off, permanent)"),
-    el("ul", { class: "list" },
-      pointRow("35 of your 50 chanters stayed daily for a month", "+200"),
-      pointRow("16 of your 50 attended NJY 2", "+200"),
-      pointRow("12 of your 50 attended NJY 3", "+400"),
+      pointRow(t("rules.milestones_row1"), "+200"),
+      pointRow(t("rules.milestones_row2"), "+300"),
+      pointRow(t("rules.milestones_row3"), "+400"),
+      pointRow(t("rules.milestones_row4"), "+500"),
     ),
   );
   view.append(overall);
 
+  // NJY Leader leaderboard: 3-bucket prorated model. Per Plan 4, the
+  // leader-side calculation is hidden from Coordinators; only NJY
+  // Leaders and HK Leader see it here.
+  const canSeeLeaderCalc = ME.role === "hk_leader" || ME.role === "njy_leader";
+  if (canSeeLeaderCalc) {
+    const leader = el("div", { class: "card" });
+    leader.append(
+      el("h3", { class: "section", style: "margin-top:0" }, t("rules.leader_hd")),
+      el("p", { class: "hint" }, t("rules.leader_intro")),
+      el("h3", { class: "section" }, t("rules.leader_perf_hd")),
+      el("p", { class: "hint" }, t("rules.leader_perf_desc")),
+      el("h3", { class: "section" }, t("rules.leader_cov_hd")),
+      el("p", { class: "hint" }, t("rules.leader_cov_desc")),
+      el("h3", { class: "section" }, t("rules.leader_touch_hd")),
+      el("p", { class: "hint" }, t("rules.leader_touch_desc")),
+      el("ul", { class: "list" },
+        pointRow(t("rules.leader_row1"), "+5"),
+        pointRow(t("rules.leader_row2"), "+5"),
+        pointRow(t("rules.leader_row4"), "+10"),
+        pointRow(t("rules.leader_row5"), "+5"),
+      ),
+    );
+    view.append(leader);
+  }
+
   view.append(el("p", { style: "margin-top:1rem" },
-    el("a", { class: "btn", href: "#/leaderboard/overall" }, "← Back to leaderboard"),
+    el("a", { class: "btn", href: "#/leaderboard/overall" }, t("lb.back_to_lb")),
   ));
 }
 
@@ -2423,40 +3772,48 @@ function pointRow(label, points) {
 //      Excel copies as tab-separated by default, so paste-from-Excel
 //      just works. Google Sheets / CSV also work.
 async function renderJanmashtami(view) {
-  view.append(el("h2", { class: "section" }, "Janmashtami rapid entry"));
+  const myToken = routeToken;  // BUG 1+2
+  if (!can("janmashtami_view_page")) {
+    view.append(el("h2", { class: "section" }, t("hd.janmashtami_rapid")));
+    view.append(el("p", { class: "hint" }, t("msg.no_access_janmashtami")));
+    return;
+  }
+  view.append(el("h2", { class: "section" }, t("hd.janmashtami_rapid")));
 
   const progressWrap = el("div", { style: "display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem" });
-  view.append(progressWrap);
+  if (can("janmashtami_progress_counters")) view.append(progressWrap);
 
   async function refreshProgress() {
+    if (!can("janmashtami_progress_counters")) return;
     try {
       const p = await api("/api/me/janmashtami-progress");
+      if (myToken !== routeToken) return;
       progressWrap.innerHTML = "";
       const b1 = el("span", { class: "tier-badge" },
         el("span", { class: "num" }, String(p.entries_today)),
-        p.next_entry_tier ? ` entries — next tier at ${p.next_entry_tier}` : " entries",
+        p.next_entry_tier ? `${t("jm.entries_next_prefix")}${p.next_entry_tier}` : t("jm.entries_suffix"),
       );
       const b2 = el("span", { class: "tier-badge warm" },
         el("span", { class: "num" }, String(p.committed_today)),
-        p.next_commit_tier ? ` daily-commits — next tier at ${p.next_commit_tier}` : " daily-commits",
+        p.next_commit_tier ? `${t("jm.commits_next_prefix")}${p.next_commit_tier}` : t("jm.commits_suffix"),
       );
       progressWrap.append(b1, b2);
     } catch (err) { /* silent */ }
   }
   await refreshProgress();
 
-  // --- Path A: single-row rapid form
+  // --- Path A: single-row rapid form (gated: janmashtami_quick_add)
   const cardA = el("div", { class: "card" });
   cardA.append(el("h3", { class: "section" }, t("hd.quick_add")));
   cardA.append(el("p", { class: "hint" }, t("help.quick_add")));
   const form = el("form", { class: "rapid-form", method: "post", action: "javascript:void(0)" });
-  const couponI = el("input", { placeholder: "e.g. 1234", required: true, inputmode: "numeric", autocomplete: "off" });
+  const couponI = el("input", { placeholder: t("jm.ph_coupon"), required: true, inputmode: "numeric", autocomplete: "off" });
   const nameI = el("input", { placeholder: t("field.name"), required: true, autocapitalize: "words" });
   const mobI  = el("input", { placeholder: t("field.mobile"), required: true, inputmode: "tel" });
   const pinI  = el("input", { placeholder: t("field.pincode"), inputmode: "numeric" });
   const submitBtn = el("button", { class: "primary", type: "submit" }, t("btn.add"));
   form.append(
-    el("div", {}, el("label", {}, "Coupon #"), couponI),
+    el("div", {}, el("label", {}, t("field.coupon")), couponI),
     el("div", {}, el("label", {}, t("field.name")), nameI),
     el("div", {}, el("label", {}, t("field.mobile")), mobI),
     el("div", {}, el("label", {}, t("field.pincode")), pinI),
@@ -2470,13 +3827,13 @@ async function renderJanmashtami(view) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     submitBtn.disabled = true;
-    feedback.textContent = "Saving…";
+    feedback.textContent = t("jm.saving");
     try {
       const r = await api("/api/janmashtami/entry", { method: "POST", body: JSON.stringify({
         coupon_no: couponI.value, name: nameI.value, mobile: mobI.value, pincode: pinI.value,
       }) });
       const p = r.person;
-      feedback.textContent = `Saved · coupon ${p.sl_no} · ${p.legal_name}`;
+      feedback.textContent = `${t("jm.saved_prefix")}${p.sl_no}${t("jm.saved_infix")}${p.legal_name}`;
       recentUl.prepend(el("li", {},
         el("div", {}, el("strong", {}, p.legal_name),
           el("div", { class: "hint" }, `coupon ${p.sl_no} · ${p.phone}${p.pincode ? " · " + p.pincode : ""}`)),
@@ -2486,18 +3843,20 @@ async function renderJanmashtami(view) {
       couponI.focus();
       refreshProgress();
     } catch (err) {
-      feedback.textContent = "Error: " + (err.body?.hint || err.message);
+      feedback.textContent = t("jm.error_prefix") + (err.body?.hint || err.message);
     } finally {
       submitBtn.disabled = false;
     }
   };
-  view.append(cardA);
+  if (can("janmashtami_quick_add")) view.append(cardA);
 
-  // --- Path B: Excel/CSV file upload with preview
+  // --- Path B: Excel/CSV file upload with preview (gated: janmashtami_upload_csv)
   const cardB = el("div", { class: "card" });
   cardB.append(el("h3", { class: "section" }, t("hd.upload_excel")));
   cardB.append(excelUploadWidget({
-    helperText: "Attach a .xlsx or .csv file. Columns: coupon_no, name, mobile, pincode, is_daily (optional 'yes'/'no'). Preview → confirm.",
+    templateGateKey: "janmashtami_download_template",
+    commitGateKey:   "janmashtami_commit_import",
+    helperText: t("jm.upload_help"),
     mapRow: (row) => ({
       coupon_no: String(row.coupon_no || row.coupon || row.Coupon || row["Coupon #"] || row["Coupon No"] || "").trim(),
       name: String(row.name || row.Name || row.NAME || "").trim(),
@@ -2512,31 +3871,31 @@ async function renderJanmashtami(view) {
       return r;
     },
   }));
-  view.append(cardB);
+  if (can("janmashtami_upload_csv")) view.append(cardB);
 
-  // --- Path C: paste-many (kept as a fallback)
+  // --- Path C: paste-many (kept as a fallback) — gated: janmashtami_paste_rows
   const cardC = el("div", { class: "card" });
   cardC.append(
     el("h3", { class: "section" }, t("hd.paste_excel")),
-    el("p", { class: "hint" }, "Ctrl-C rows in Excel (copies as tab-separated), then paste here. One person per line: name, mobile, pincode."),
-    formField("Paste here", el("textarea", { id: "jm-paste", rows: "6",
-      placeholder: "1\tRavi\t9876543210\t625001\tyes\n2\tPriya\t9876543211\t625002\tno" })),
+    el("p", { class: "hint" }, t("help.paste_excel")),
+    formField(t("hd.paste_excel"), el("textarea", { id: "jm-paste", rows: "6",
+      placeholder: t("jm.ph_paste") })),
     el("p", {},
-      el("button", { class: "primary", type: "button", id: "jm-paste-go" }, "Import"),
+      el("button", { class: "primary", type: "button", id: "jm-paste-go" }, t("btn.import")),
       " ", el("span", { class: "hint", id: "jm-paste-msg" }),
     ),
   );
-  view.append(cardC);
+  if (can("janmashtami_paste_rows")) view.append(cardC);
 
-  // --- Path D: today's entries — moved to bottom so the upload options
-  // are what you see first when the tab loads.
+  // --- Path D: today's entries (gated: janmashtami_today_entries)
   const cardD = el("div", { class: "card" });
   cardD.append(el("h3", { class: "section" }, t("hd.today_entries")));
-  cardD.append(el("p", { class: "hint" }, "Everything you've added today lands here. Scroll down to double-check before the day ends."));
+  cardD.append(el("p", { class: "hint" }, t("help.today_entries")));
   cardD.append(recentUl);
-  view.append(cardD);
+  if (can("janmashtami_today_entries")) view.append(cardD);
 
-  $("jm-paste-go").addEventListener("click", async () => {
+  const jmPasteGoEl = $("jm-paste-go");
+  if (jmPasteGoEl) jmPasteGoEl.addEventListener("click", async () => {
     const raw = $("jm-paste").value.trim();
     if (!raw) return;
     // Column order for paste: coupon_no, name, mobile, pincode, is_daily
@@ -2552,7 +3911,7 @@ async function renderJanmashtami(view) {
     }).filter(r => r.name && r.mobile);
     try {
       const r = await api("/api/janmashtami/bulk", { method: "POST", body: JSON.stringify({ rows }) });
-      $("jm-paste-msg").textContent = `Imported ${r.created} · ${r.errors.length} error(s)`;
+      $("jm-paste-msg").textContent = `${t("jm.imported_prefix")}${r.created}${t("jm.imported_infix")}${r.errors.length}${t("jm.imported_suffix")}`;
       $("jm-paste").value = "";
       refreshProgress();
       loadTodayEntries();
@@ -2567,6 +3926,7 @@ async function renderJanmashtami(view) {
   async function loadTodayEntries() {
     try {
       const { entries } = await api("/api/me/janmashtami-entries");
+      if (myToken !== routeToken) return;
       recentUl.innerHTML = "";
       if (!entries.length) {
         recentUl.append(el("li", {}, el("span", { class: "hint" }, t("msg.no_entries_today"))));
@@ -2597,7 +3957,7 @@ async function renderSettings(view) {
   view.append(el("h2", { class: "section" }, t("hd.settings_title")));
   view.append(helpBanner(t("help.settings")));
 
-  // --- Change my password
+  // --- Change my password (gated: settings_change_password)
   const pwCard = el("form", { class: "card", method: "post", action: "javascript:void(0)" });
   pwCard.append(el("h3", { class: "section", style: "margin-top:0" }, t("hd.change_pw")));
   pwCard.append(el("p", { class: "hint" }, t("help.change_pw")));
@@ -2618,12 +3978,12 @@ async function renderSettings(view) {
     } catch (err) {
       pwMsg.textContent = err.body?.error === "wrong_current_password"
         ? t("msg.pw_wrong_current")
-        : (err.message || "Could not update.");
+        : (err.message || t("st.could_not_update"));
     }
   };
-  view.append(pwCard);
+  if (can("settings_change_password")) view.append(pwCard);
 
-  // --- Language picker
+  // --- Language picker (gated: header_language_toggle)
   const langCard = el("div", { class: "card" });
   langCard.append(el("h3", { class: "section", style: "margin-top:0" }, t("hd.language")));
   langCard.append(el("p", { class: "hint" }, t("msg.pick_lang")));
@@ -2636,73 +3996,51 @@ async function renderSettings(view) {
     langBtns.append(btn);
   }
   langCard.append(langBtns);
-  view.append(langCard);
-  view.append(el("p", { class: "hint" }, t("help.wa_templates")));
+  if (can("header_language_toggle")) view.append(langCard);
 
-  const card = el("form", { class: "card", method: "post", action: "javascript:void(0)" });
-  const daily = el("textarea", { id: "wa-daily", rows: "5",
-    placeholder: "Hare Krsna {name}, did you complete your daily japa today? 🌸" });
-  const nondaily = el("textarea", { id: "wa-nondaily", rows: "5",
-    placeholder: "Hare Krsna {name}! Are you interested in daily chanting? Reply YES and we'll share the mantra card." });
-  daily.value = ME.wa_template_daily || "";
-  nondaily.value = ME.wa_template_nondaily || "";
-  card.append(
-    el("h3", { class: "section" }, t("hd.wa_daily")),
-    daily,
-    el("h3", { class: "section" }, t("hd.wa_nondaily")),
-    nondaily,
-    el("p", { style: "margin-top:1rem" },
-      el("button", { type: "submit", class: "primary" }, t("btn.save")),
-      " ", el("span", { class: "hint", id: "wa-msg" }),
-    ),
-  );
-  card.onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await api("/api/me/wa-templates", { method: "POST", body: JSON.stringify({
-        wa_template_daily: daily.value, wa_template_nondaily: nondaily.value,
-      }) });
-      ME.wa_template_daily = daily.value;
-      ME.wa_template_nondaily = nondaily.value;
-      $("wa-msg").textContent = t("msg.saved");
-    } catch (err) {
-      $("wa-msg").textContent = err.message || "Save failed";
-    }
-  };
-  view.append(card);
+  // WhatsApp template editor moved to the My Sangha page (change 2/3 —
+  // one message per coord, edited inline right next to the Broadcast
+  // CTA). Leave a small notice so anyone still hunting for it here
+  // knows where it went.
+  if (can("settings_wa_templates")) {
+    view.append(el("div", { class: "card" },
+      el("h3", { class: "section", style: "margin-top:0" }, t("hd.wa_template_moved")),
+      el("p", { class: "hint", style: "margin:.3rem 0 0" }, t("st.wa_template_moved_notice")),
+    ));
+  }
 }
 
 // ---------------------------------------------------------- admin ---
 async function renderAdmin(tab) {
   const view = $("view");
-  view.append(el("h2", { class: "section" }, "Admin"));
-  view.append(helpBanner(
-    "Administrative controls — HK Leader only. Feature gates toggle " +
-    "which roles see which parts of the app (no redeploy needed). " +
-    "Users lets you create logins and assign SL ranges. Bulk import " +
-    "brings chanter lists in from Excel. Events lets you create NJY / " +
-    "BG sessions with their real dates."
-  ));
-  const tabs = el("div", { class: "nav", style: "border:none" });
-  // Each sub-tab is now individually gate-able. HK Leader always sees
+  // Each sub-tab is individually gate-able. HK Leader always sees
   // everything (can() short-circuits). For any other role, only the
-  // sub-tabs their gate allows show up here — and route access is guarded
-  // below in case they hit the URL directly.
+  // sub-tabs their gate allows show up here — and route access is
+  // guarded below in case they hit the URL directly.
   const subGates = [
-    { key: "gates",       gate: "admin_gates",           label: "Feature gates",      render: renderAdminGates },
-    { key: "users",       gate: "admin_users",           label: "Users",              render: renderAdminUsers },
-    { key: "users-bulk",  gate: "admin_users_bulk",      label: "Bulk create users",  render: renderAdminUsersBulk },
-    { key: "import",      gate: "admin_import_chanters", label: "Bulk import chanters", render: renderAdminImport },
-    { key: "events",      gate: "admin_events",          label: "Events",             render: renderAdminEvents },
+    { key: "gates",       gate: "admin_gates",           label: t("admin.tab_gates"),       render: renderAdminGates },
+    { key: "users",       gate: "admin_users",           label: t("admin.tab_users"),       render: renderAdminUsers },
+    { key: "users-bulk",  gate: "admin_users_bulk",      label: t("admin.tab_users_bulk"),  render: renderAdminUsersBulk },
+    { key: "import",      gate: "admin_import_chanters", label: t("admin.tab_import"),      render: renderAdminImport },
+    { key: "events",      gate: "admin_events",          label: t("admin.tab_events"),      render: renderAdminEvents },
   ];
   const visible = subGates.filter(s => can(s.gate));
+  const target = subGates.find(s => s.key === tab) || subGates[0];
+  // BUG 5: if the caller can't access ANY admin sub-tab (nor the target
+  // sub-tab specifically), render ONLY the friendly access-denied
+  // message. Do NOT paint the "Admin" h2 or the "HK Leader only" banner
+  // first — that made non-HK users think they were allowed in and just
+  // rendered "no access" as a footer.
+  if (!visible.length || !can(target.gate)) {
+    view.append(el("p", { class: "hint" }, t("msg.no_access_admin")));
+    return;
+  }
+  view.append(el("h2", { class: "section" }, t("hd.admin")));
+  view.append(helpBanner(t("admin.help_banner")));
+  const tabs = el("div", { class: "nav", style: "border:none" });
   const mkTab = (key, label) => el("a", { class: tab === key ? "active" : "", href: `#/admin/${key}` }, label);
   for (const s of visible) tabs.append(mkTab(s.key, s.label));
   view.append(tabs);
-  const target = subGates.find(s => s.key === tab) || subGates[0];
-  if (!can(target.gate)) {
-    return view.append(el("p", { class: "hint" }, "You don't have access to this admin section."));
-  }
   return target.render(view);
 }
 
@@ -2715,12 +4053,12 @@ async function renderAdminUsersBulk(view) {
   const upload = el("div", { class: "card" });
   upload.append(el("h3", { class: "section", style: "margin-top:0" }, t("hd.upload_excel_csv")));
   upload.append(excelUploadWidget({
-    helperText: "Columns: username, password, display_name, phone, role, manager_username.",
+    helperText: t("admin.users_bulk_cols"),
     templateBuilder: downloadUsersTemplate,
     templateLabel: t("btn.download_users_template"),
     isValidRow: (r) => r.username && r.display_name,
-    emptyMessage: "No usable rows found. Make sure the file has 'username' and 'display_name' columns filled in.",
-    previewCols: ["Username", "Display name", "Role", "Phone", "Manager"],
+    emptyMessage: t("xl.no_usable_users"),
+    previewCols: [t("xl.col_username"), t("xl.col_display_name"), t("xl.col_role"), t("xl.col_phone"), t("xl.col_manager")],
     previewRow: (r) => [r.username, r.display_name, r.role, r.phone, r.manager_username],
     mapRow: (row) => ({
       username: String(row.username || row.Username || "").trim(),
@@ -2741,9 +4079,9 @@ async function renderAdminUsersBulk(view) {
   const paste = el("div", { class: "card" });
   paste.append(
     el("h3", { class: "section", style: "margin-top:0" }, t("hd.paste_rows")),
-    el("p", { class: "hint" }, "One user per line, tab-separated: username, password, display_name, phone, role, manager_username."),
-    formField("Paste", el("textarea", { id: "ub-paste", rows: "8",
-      placeholder: "leader1\tpass123\tRadha Priya\t9876500001\tnjy_leader\t\ncoord01\tpass123\tSri Coord\t9876500002\tnjy_coordinator\tleader1" })),
+    el("p", { class: "hint" }, t("help.admin_paste_users")),
+    formField(t("hd.paste_rows"), el("textarea", { id: "ub-paste", rows: "8",
+      placeholder: t("admin.users_bulk_paste_ph") })),
     el("p", {}, el("button", { class: "primary", type: "button", id: "ub-go" }, t("btn.import")),
       " ", el("span", { class: "hint", id: "ub-msg" })),
     el("pre", { id: "ub-out", style: "font-family:var(--font-mono);font-size:.75rem;color:var(--muted);white-space:pre-wrap" }),
@@ -2765,57 +4103,259 @@ async function renderAdminUsersBulk(view) {
     }).filter(r => r.username);
     try {
       const r = await api("/api/admin/users/bulk", { method: "POST", body: JSON.stringify({ rows }) });
-      $("ub-msg").textContent = `Created ${r.created.length} · ${r.errors.length} error(s)`;
+      $("ub-msg").textContent = `${t("admin.record_created_prefix")}${r.created.length}${t("xl.errors_middle")}${r.errors.length}${t("xl.errors_suffix")}`;
       $("ub-out").textContent = JSON.stringify(r, null, 2);
     } catch (err) { $("ub-msg").textContent = err.message; }
   });
 }
 
+// Grouping map — every known gate_key -> tab section. Anything not
+// listed here falls into "Other" so newly-added gates are still visible
+// (and HK Leader can categorize later by editing this table).
+const GATE_GROUPS = {
+  "Header / Global": [
+    "header_contact_leader_pill", "header_contact_hk_pill",
+    "header_install_pwa", "header_language_toggle", "header_points_chip",
+  ],
+  "My Roll": [
+    "coordinator_roll", "myroll_mark_chanted_today",
+    "myroll_mark_chanted_past_date", "myroll_add_note",
+    "myroll_change_status", "myroll_reassign_member",
+    "myroll_manage_dropdown", "myroll_broadcast_button",
+    "myroll_wa_group_button", "myroll_care_moments_panel",
+    "myroll_history_strip",
+  ],
+  "Team (leader)": [
+    "leader_dashboard", "team_view_coords_list", "team_drill_into_coord",
+    "team_broadcast_to_coords", "team_wa_group_of_coords",
+  ],
+  "HK Dashboard": ["hk_dashboard", "hk_reassign_leader"],
+  "Duties":  ["duties_view_list", "duties_mark_done", "duties_delete"],
+  "Events":  ["event_attendance", "events_view_list", "events_edit", "events_delete"],
+  "BV":      ["bv_structure_editor", "bv_add_group", "bv_delete_group", "bv_edit_group"],
+  "Janmashtami": [
+    "janmashtami_view_page", "janmashtami_quick_add",
+    "janmashtami_upload_csv", "janmashtami_paste_rows",
+    "janmashtami_download_template", "janmashtami_preview",
+    "janmashtami_commit_import", "janmashtami_progress_counters",
+    "janmashtami_today_entries",
+  ],
+  "Leaderboard": [
+    "leaderboard_coord_daily", "leaderboard_coord_overall",
+    "leaderboard_leaders_daily", "leaderboard_leaders_overall",
+    "leaderboard_sort_toggle",
+  ],
+  "Settings": [
+    "settings_change_password", "settings_wa_templates",
+    "web_push", "settings_view_profile", "settings_wa_group_link",
+  ],
+  "Admin": [
+    "feature_admin", "admin_gates", "admin_users", "admin_users_bulk",
+    "admin_import_chanters", "admin_events", "admin_points_rules_edit",
+    "admin_roles_manage", "bulk_import",
+  ],
+  "Sadhana": [
+    "sadhana_chart", "sadhana_entry_submit",
+    "sadhana_delete_entry", "sadhana_browse",
+  ],
+  "Cross-cutting": [
+    "whatsapp_deeplink", "member_details_full", "group_planning_sheet",
+    "action_timeline_duties",
+  ],
+};
+
 async function renderAdminGates(view) {
+  const myToken = routeToken;  // BUG 1+2
   const { gates } = await api("/api/me");
-  const ROLES = ["hk_leader","njy_leader","njy_coordinator","circle_servant","sector_servant","servant_leader","member"];
-  const card = el("div", { class: "card" });
-  card.append(el("h3", { class: "section" }, "Feature visibility"));
-  card.append(el("p", { class: "hint" }, "Widen a feature to more roles without a redeploy. HK Leader implicitly sees all features."));
-  for (const [key, allowed] of Object.entries(gates)) {
-    const row = el("div", { style: "margin:.6rem 0;padding:.5rem 0;border-bottom:1px solid var(--line)" });
-    row.append(el("strong", {}, key));
-    const chips = el("div", { class: "row", style: "flex-wrap:wrap;gap:.3rem;margin-top:.3rem" });
-    ROLES.forEach((r) => {
-      const on = allowed.includes(r);
-      const b = el("button", { class: "pill" + (on ? " on" : ""), style: "cursor:pointer" }, r);
-      b.addEventListener("click", async () => {
-        const next = on ? allowed.filter(x => x !== r) : allowed.concat(r);
-        try {
-          await api("/api/admin/feature-gate", { method: "POST",
-            body: JSON.stringify({ feature_key: key, allowed_roles: next }) });
-          renderRoute();
-        } catch (err) { alert(err.message); }
-      });
-      chips.append(b);
-    });
-    row.append(chips);
-    card.append(row);
+  if (myToken !== routeToken) return;
+
+  const ROLES = [
+    { key: "hk_leader",       label: t("admin.role_hk") },
+    { key: "njy_leader",      label: t("admin.role_leader") },
+    { key: "njy_coordinator", label: t("admin.role_coord") },
+    { key: "servant_leader",  label: t("admin.role_sl") },
+    { key: "circle_servant",  label: t("admin.role_cs") },
+    { key: "sector_servant",  label: t("admin.role_ss") },
+    { key: "manjari_servant_leader", label: t("admin.role_msl") },
+    { key: "member",          label: t("admin.role_member") },
+  ];
+
+  // Working copy — user edits this, then hits Save on a section.
+  const state = {};
+  for (const [k, v] of Object.entries(gates)) state[k] = v.slice();
+  const dirty = new Set();
+
+  // Build reverse lookup: which section owns each key. Anything not in
+  // GATE_GROUPS lands in "Other".
+  const owner = {};
+  for (const [section, keys] of Object.entries(GATE_GROUPS)) {
+    for (const k of keys) owner[k] = section;
   }
-  view.append(card);
+  const sections = { ...Object.fromEntries(Object.keys(GATE_GROUPS).map(s => [s, []])), Other: [] };
+  for (const k of Object.keys(gates)) {
+    const s = owner[k] || "Other";
+    sections[s].push(k);
+  }
+
+  view.append(el("h3", { class: "section" }, t("hd.feature_visibility")));
+  view.append(el("p", { class: "hint" }, t("admin.gates_hint")));
+
+  // Search box (filters section rows by key or description)
+  const search = el("input", {
+    placeholder: t("admin.gates_filter_ph"),
+    style: "width:100%;padding:.5rem;border:1px solid var(--line);border-radius:6px;margin:.4rem 0 1rem",
+    id: "gate-search",
+  });
+  view.append(search);
+
+  // Global save-all button
+  const globalSaveWrap = el("div", { style: "position:sticky;top:0;background:var(--bg);padding:.4rem 0;z-index:5;border-bottom:1px solid var(--line);margin-bottom:.6rem" });
+  const globalSave = el("button", { class: "primary", type: "button" }, t("btn.save_all"));
+  const globalMsg = el("span", { class: "hint", style: "margin-left:.6rem" });
+  globalSaveWrap.append(globalSave, " ", globalMsg);
+  view.append(globalSaveWrap);
+
+  // Section titles are English keys in GATE_GROUPS (used as lookup
+  // slugs); translate at render time via admin.gate_section.<key>.
+  const sectionLabel = (title) => {
+    const key = "admin.gate_section." + title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+    const v = t(key);
+    return v !== key ? v : title;
+  };
+  const renderSection = (title, keys) => {
+    if (!keys.length) return null;
+    const card = el("div", { class: "card", "data-section": title });
+    card.append(el("h3", { class: "section", style: "margin-top:0" }, sectionLabel(title),
+      el("span", { class: "hint", style: "margin-left:.5rem;font-weight:400" }, `${keys.length}${keys.length === 1 ? t("admin.gate_count_suffix") : t("admin.gate_count_suffix_plural")}`)));
+
+    for (const key of keys.sort()) {
+      const rowEl = el("div", {
+        class: "gate-row",
+        "data-key": key,
+        style: "display:grid;grid-template-columns:minmax(220px, 1fr) auto;gap:.5rem;align-items:center;padding:.45rem 0;border-bottom:1px solid var(--line)",
+      });
+      rowEl.append(el("div", {},
+        el("strong", { style: "font-family:var(--font-mono);font-size:.85rem" }, key),
+      ));
+      const chips = el("div", { style: "display:flex;flex-wrap:wrap;gap:.3rem" });
+      for (const r of ROLES) {
+        const on = () => state[key].includes(r.key);
+        const chip = el("label", {
+          style: "display:inline-flex;align-items:center;gap:.25rem;padding:.2rem .5rem;border:1px solid var(--line);border-radius:6px;font-size:.78rem;cursor:pointer;user-select:none",
+          title: r.key,
+        });
+        const cb = el("input", { type: "checkbox" });
+        cb.checked = on();
+        cb.addEventListener("change", () => {
+          if (cb.checked) {
+            if (!state[key].includes(r.key)) state[key].push(r.key);
+          } else {
+            state[key] = state[key].filter(x => x !== r.key);
+          }
+          dirty.add(key);
+          rowEl.style.background = "var(--tint-followed, #fff8e1)";
+          saveBtn.disabled = false;
+          globalMsg.textContent = `${dirty.size}${dirty.size === 1 ? t("admin.unsaved_singular") : t("admin.unsaved_plural")}`;
+        });
+        chip.append(cb, el("span", {}, r.label));
+        chips.append(chip);
+      }
+      rowEl.append(chips);
+      card.append(rowEl);
+    }
+
+    const saveRow = el("div", { style: "margin-top:.6rem;display:flex;gap:.5rem;align-items:center" });
+    const saveBtn = el("button", { class: "primary", type: "button", disabled: true }, t("btn.save_section"));
+    const msg = el("span", { class: "hint" });
+    saveBtn.addEventListener("click", async () => {
+      const changes = keys
+        .filter(k => dirty.has(k))
+        .map(k => ({ feature_key: k, allowed_roles: state[k] }));
+      if (!changes.length) return;
+      saveBtn.disabled = true; msg.textContent = t("admin.saving");
+      try {
+        await api("/api/admin/feature-gates/bulk", {
+          method: "POST", body: JSON.stringify({ changes }),
+        });
+        for (const c of changes) dirty.delete(c.feature_key);
+        msg.textContent = `${t("admin.saved_prefix")}${changes.length}${t("admin.saved_suffix")}`;
+        // clear highlight on saved rows
+        card.querySelectorAll(".gate-row").forEach(el2 => el2.style.background = "");
+        globalMsg.textContent = dirty.size ? `${dirty.size}${t("admin.unsaved_other_suffix")}` : "";
+      } catch (err) {
+        msg.textContent = t("admin.error_prefix") + err.message;
+        saveBtn.disabled = false;
+      }
+    });
+    saveRow.append(saveBtn, msg);
+    card.append(saveRow);
+    return card;
+  };
+
+  // Global save-all: fire one bulk request for every dirty key
+  globalSave.addEventListener("click", async () => {
+    if (!dirty.size) { globalMsg.textContent = t("admin.no_changes"); return; }
+    globalSave.disabled = true; globalMsg.textContent = t("admin.saving_all");
+    try {
+      const changes = [...dirty].map(k => ({ feature_key: k, allowed_roles: state[k] }));
+      await api("/api/admin/feature-gates/bulk", {
+        method: "POST", body: JSON.stringify({ changes }),
+      });
+      dirty.clear();
+      globalMsg.textContent = `${t("admin.saved_prefix")}${changes.length}${t("admin.saved_suffix")}`;
+      view.querySelectorAll(".gate-row").forEach(el2 => el2.style.background = "");
+      // Disable every "Save section" button by matching the translated label.
+      const saveSectionLabel = t("btn.save_section");
+      view.querySelectorAll('button[type="button"]').forEach(b => { if (b.textContent === saveSectionLabel) b.disabled = true; });
+    } catch (err) {
+      globalMsg.textContent = t("admin.error_prefix") + err.message;
+    } finally {
+      globalSave.disabled = false;
+    }
+  });
+
+  // Render each section (order preserved from GATE_GROUPS)
+  const sectionEls = [];
+  const sectionOrder = [...Object.keys(GATE_GROUPS), "Other"];
+  for (const s of sectionOrder) {
+    const c = renderSection(s, sections[s]);
+    if (c) { view.append(c); sectionEls.push(c); }
+  }
+
+  // Search filter
+  search.addEventListener("input", () => {
+    const q = search.value.trim().toLowerCase();
+    for (const card of sectionEls) {
+      let anyVisible = false;
+      card.querySelectorAll(".gate-row").forEach(row => {
+        const key = row.getAttribute("data-key") || "";
+        const match = !q || key.toLowerCase().includes(q);
+        row.hidden = !match;
+        if (match) anyVisible = true;
+      });
+      card.hidden = !anyVisible;
+    }
+  });
 }
 
 async function renderAdminUsers(view) {
+  const myToken = routeToken;  // BUG 1+2
   ALL_USERS_CACHE = null;
   try {
     const { users } = await api("/api/admin/users");
+    if (myToken !== routeToken) return;
     const ROLES = ["hk_leader","njy_leader","njy_coordinator","circle_servant","sector_servant","servant_leader","member"];
     const ul = el("ul", { class: "list" });
     for (const u of users) {
       const rangeText = (u.sl_range_start != null && u.sl_range_end != null)
-        ? ` · sl ${u.sl_range_start}-${u.sl_range_end}` : "";
+        ? `${t("admin.sl_range_prefix")}${u.sl_range_start}-${u.sl_range_end}` : "";
       const mgr = users.find(x => x.id === u.manager_user_id);
-      const mgrText = mgr ? ` · under ${mgr.display_name || mgr.username}` : "";
+      const mgrText = mgr ? `${t("admin.under_prefix")}${mgr.display_name || mgr.username}` : "";
       const li = el("li", {},
         el("div", {}, el("strong", {}, u.display_name || u.username),
-          el("div", { class: "hint" }, `${u.username}${rangeText}${mgrText}${u.active ? "" : " · (inactive)"}`)),
+          el("div", { class: "hint" }, `${u.username}${rangeText}${mgrText}${u.active ? "" : t("admin.inactive_suffix")}`)),
         el("span", { class: "pill" }, humanRole(u.role)),
-        el("button", { class: "mini-btn" }, "Edit"),
+        el("button", { class: "mini-btn" }, t("btn.edit_short")),
       );
       const editBtn = li.lastChild;
       editBtn.addEventListener("click", () => {
@@ -2825,21 +4365,21 @@ async function renderAdminUsers(view) {
         const nm = el("input", { value: u.display_name || "" });
         const rl = el("select", {}, ...ROLES.map(r =>
           el("option", { value: r, selected: r === u.role ? true : undefined }, humanRole(r))));
-        const pw = el("input", { type: "password", placeholder: "(leave blank to keep)" });
+        const pw = el("input", { type: "password", placeholder: t("admin.pw_ph_keep") });
         const act = el("select", {},
-          el("option", { value: "1", selected: u.active ? true : undefined }, "Active"),
-          el("option", { value: "0", selected: !u.active ? true : undefined }, "Inactive"),
+          el("option", { value: "1", selected: u.active ? true : undefined }, t("opt.active")),
+          el("option", { value: "0", selected: !u.active ? true : undefined }, t("opt.inactive")),
         );
-        const rs = el("input", { type: "number", value: u.sl_range_start ?? "", placeholder: "e.g. 10000" });
-        const re = el("input", { type: "number", value: u.sl_range_end ?? "", placeholder: "e.g. 10099" });
-        const autoBtn = el("button", { class: "mini-btn", type: "button" }, "Auto-fill next range");
+        const rs = el("input", { type: "number", value: u.sl_range_start ?? "", placeholder: t("admin.ph_sl_start") });
+        const re = el("input", { type: "number", value: u.sl_range_end ?? "", placeholder: t("admin.ph_sl_end") });
+        const autoBtn = el("button", { class: "mini-btn", type: "button" }, t("btn.autofill_range"));
         autoBtn.addEventListener("click", async () => {
           try {
             const r = await api("/api/admin/next-sl-range");
             rs.value = r.start; re.value = r.end;
           } catch (err) { alert(err.message); }
         });
-        const save = el("button", { class: "primary" }, "Save");
+        const save = el("button", { class: "primary" }, t("btn.save"));
         save.addEventListener("click", async () => {
           try {
             const body = {
@@ -2855,19 +4395,19 @@ async function renderAdminUsers(view) {
         // Manager dropdown — only NJY leaders show up; empty for HK/leader themselves.
         const leaders = users.filter(x => x.role === "njy_leader" && x.active);
         const mgrSel = el("select", {},
-          el("option", { value: "" }, "— no manager —"),
+          el("option", { value: "" }, "- no manager -"),
           ...leaders.map(l => el("option", {
             value: l.id, selected: l.id === u.manager_user_id ? true : undefined,
           }, l.display_name || l.username)),
         );
         p.append(
-          el("div", {}, el("label", {}, "Display name"), nm),
-          el("div", {}, el("label", {}, "Role"), rl),
-          el("div", {}, el("label", {}, "Reset password"), pw),
-          el("div", {}, el("label", {}, "Status"), act),
-          el("div", {}, el("label", {}, "SL range start"), rs),
-          el("div", {}, el("label", {}, "SL range end"), re),
-          el("div", { class: "full" }, el("label", {}, "Manager (NJY Leader — only for coordinators)"), mgrSel),
+          el("div", {}, el("label", {}, t("field.display_name")), nm),
+          el("div", {}, el("label", {}, t("field.role")), rl),
+          el("div", {}, el("label", {}, t("field.reset_password")), pw),
+          el("div", {}, el("label", {}, t("field.status")), act),
+          el("div", {}, el("label", {}, t("field.sl_range_start")), rs),
+          el("div", {}, el("label", {}, t("field.sl_range_end")), re),
+          el("div", { class: "full" }, el("label", {}, t("field.manager")), mgrSel),
           el("div", { class: "full" }, autoBtn, " ", save),
         );
         li.append(p);
@@ -2880,40 +4420,40 @@ async function renderAdminUsers(view) {
     const leaders = users.filter(u => u.role === "njy_leader" && u.active);
     const form = el("form", { class: "card", method: "post", action: "javascript:void(0)" });
     const roleSel = el("select", { id: "u-role" },
-      el("option", { value: "njy_coordinator" }, "NJY Group Coordinator"),
-      el("option", { value: "njy_leader" }, "NJY Leader"),
-      el("option", { value: "servant_leader" }, "Servant Leader"),
-      el("option", { value: "sector_servant" }, "Sector Servant"),
-      el("option", { value: "circle_servant" }, "Circle Servant"),
-      el("option", { value: "hk_leader" }, "HK Leader"),
+      el("option", { value: "njy_coordinator" }, t("admin.opt_njy_coord")),
+      el("option", { value: "njy_leader" }, t("admin.opt_njy_leader")),
+      el("option", { value: "servant_leader" }, t("admin.opt_servant_leader")),
+      el("option", { value: "sector_servant" }, t("admin.opt_sector_servant")),
+      el("option", { value: "circle_servant" }, t("admin.opt_circle_servant")),
+      el("option", { value: "hk_leader" }, t("admin.opt_hk_leader")),
     );
     const mgrSel = el("select", { id: "u-manager" },
-      el("option", { value: "" }, "— no manager —"),
+      el("option", { value: "" }, "- no manager -"),
       ...leaders.map(l => el("option", { value: l.username }, l.display_name || l.username)),
     );
     const mgrRow = el("div", { id: "u-manager-row" },
-      formField("Manager (NJY Leader)", mgrSel),
+      formField(t("admin.user_field_mgr"), mgrSel),
     );
     const updateMgrVisibility = () => {
       mgrRow.style.display = (roleSel.value === "njy_coordinator") ? "" : "none";
     };
     roleSel.addEventListener("change", updateMgrVisibility);
     form.append(
-      el("h3", { class: "section" }, "New user"),
-      el("p", { class: "hint" }, "Add a single leader or coordinator. Use Bulk create users when you have many at once."),
+      el("h3", { class: "section" }, t("hd.new_user")),
+      el("p", { class: "hint" }, t("help.new_user")),
       el("div", { class: "grid2" },
-        formField("Username", el("input", { id: "u-name", required: true, autocapitalize: "none", autocomplete: "off" })),
-        formField("Display name", el("input", { id: "u-display", required: true })),
+        formField(t("admin.user_field_username"), el("input", { id: "u-name", required: true, autocapitalize: "none", autocomplete: "off" })),
+        formField(t("admin.user_field_display"), el("input", { id: "u-display", required: true })),
       ),
       el("div", { class: "grid2" },
-        formField("Password", el("input", { id: "u-pass", type: "password", required: true })),
-        formField("Phone", el("input", { id: "u-phone", inputmode: "numeric", placeholder: "10-digit or +91…" })),
+        formField(t("admin.user_field_password"), el("input", { id: "u-pass", type: "password", required: true })),
+        formField(t("admin.user_field_phone"), el("input", { id: "u-phone", inputmode: "numeric", placeholder: t("admin.user_ph_phone") })),
       ),
       el("div", { class: "grid2" },
-        formField("Role", roleSel),
+        formField(t("admin.user_field_role"), roleSel),
         mgrRow,
       ),
-      el("p", {}, el("button", { class: "primary", type: "submit" }, "Create user"),
+      el("p", {}, el("button", { class: "primary", type: "submit" }, t("btn.create_user")),
         " ", el("span", { class: "hint", id: "u-msg" })),
     );
     updateMgrVisibility();
@@ -2929,11 +4469,11 @@ async function renderAdminUsers(view) {
       };
       try {
         await api("/api/admin/users", { method: "POST", body: JSON.stringify(body) });
-        $("u-msg").textContent = "Created."; renderRoute();
+        $("u-msg").textContent = t("admin.user_created"); renderRoute();
       } catch (err) {
-        $("u-msg").textContent = err.body?.error === "username_taken" ? "That username is already taken."
-          : err.body?.error === "manager_not_found" ? "Manager not found — pick again."
-          : (err.message || "Could not create.");
+        $("u-msg").textContent = err.body?.error === "username_taken" ? t("admin.user_err_username_taken")
+          : err.body?.error === "manager_not_found" ? t("admin.user_err_manager")
+          : (err.message || t("admin.user_err_generic"));
       }
     };
     view.append(form);
@@ -2943,6 +4483,7 @@ async function renderAdminUsers(view) {
 }
 
 async function renderAdminImport(view) {
+  const myToken = routeToken;  // BUG 1+2
   view.append(helpBanner(t("help.admin_bulk_chanters")));
 
   // Coord list for the dropdown (data-entry team picks which coord to
@@ -2951,6 +4492,7 @@ async function renderAdminImport(view) {
   let coordUsers = [];
   try {
     const { users } = await api("/api/admin/users");
+    if (myToken !== routeToken) return;
     coordUsers = users.filter(u => u.role === "njy_coordinator" && u.active);
   } catch { /* ok — leave empty */ }
 
@@ -2961,22 +4503,22 @@ async function renderAdminImport(view) {
   // Coordinator picker for the whole batch (fallback when the sheet
   // doesn't specify coord_username per row).
   const coordSel = el("select", { id: "imp-assign-file" },
-    el("option", { value: "" }, "— pick coordinator for this batch (or use coord_username column) —"),
+    el("option", { value: "" }, t("msg.pick_coord_batch")),
     ...coordUsers.map(c => el("option", { value: c.id }, `${c.display_name || c.username} (${c.username})`)),
   );
   uploadCard.append(el("div", { style: "margin:.4rem 0 .7rem" },
     el("label", { style: "display:block;font-size:.85rem;color:var(--muted);margin-bottom:.2rem" },
-      "Assign to coordinator (batch default)"),
+      t("admin.assign_batch_label")),
     coordSel,
   ));
 
   uploadCard.append(excelUploadWidget({
-    helperText: "Attach a .xlsx or .csv file. Columns: coupon_no, name, mobile, pincode, is_daily, coord_username. coord_username per-row wins over the batch dropdown above.",
+    helperText: t("admin.chanters_help"),
     templateBuilder: downloadChanterTemplate,
     templateLabel: t("btn.download_chanters_template"),
     isValidRow: (r) => r.legal_name && r.phone,
-    emptyMessage: "No usable rows found. Make sure the file has 'name' and 'mobile' columns (case-insensitive) with non-empty values.",
-    previewCols: ["Coupon #", "Name", "Mobile", "Pincode", "Daily?", "Coord"],
+    emptyMessage: t("xl.no_usable_chanters"),
+    previewCols: [t("xl.col_coupon"), t("xl.col_name"), t("xl.col_mobile"), t("xl.col_pincode"), t("xl.col_daily"), t("xl.col_coord")],
     previewRow: (r) => [r.coupon_no, r.legal_name, r.phone, r.pincode || "", r.is_daily || "", r.coord_username || ""],
     mapRow: (row) => ({
       legal_name: String(row.legal_name || row.name || row.Name || row.NAME || "").trim(),
@@ -3005,22 +4547,22 @@ async function renderAdminImport(view) {
   // the operator never has to type a raw user id.
   const card = el("form", { class: "card", method: "post", action: "javascript:void(0)" });
   const pasteCoordSel = el("select", { id: "imp-assign" },
-    el("option", { value: "" }, "— pick coordinator for these pasted rows (or leave blank if coord_username is in the rows) —"),
+    el("option", { value: "" }, t("msg.pick_coord_paste")),
     ...coordUsers.map(c => el("option", { value: c.id }, `${c.display_name || c.username} (${c.username})`)),
   );
   card.append(
     el("h3", { class: "section" }, t("hd.paste_rows")),
-    el("p", { class: "hint" }, "Paste rows from Excel (Ctrl-C copies as tab-separated) OR as CSV. Header row first. Minimum columns: legal_name/name, phone/mobile. Optional: pincode, coupon_no, is_daily, coord_username."),
-    formField("Paste here", el("textarea", { id: "imp-csv", rows: "12", placeholder: "coupon_no\tname\tmobile\tpincode\tis_daily\tcoord_username\n1001\tRavi\t9999000001\t625001\tyes\tcoord01" })),
+    el("p", { class: "hint" }, t("help.admin_paste_chanters")),
+    formField(t("hd.paste_excel"), el("textarea", { id: "imp-csv", rows: "12", placeholder: t("admin.chanters_paste_ph") })),
     el("div", { style: "margin:.4rem 0" },
       el("label", { style: "display:block;font-size:.85rem;color:var(--muted);margin-bottom:.2rem" },
-        "Assign to coordinator (batch default)"),
+        t("admin.assign_batch_label")),
       pasteCoordSel,
     ),
     el("p", {},
-      el("button", { class: "ghost", type: "button", id: "imp-preview" }, "Preview"),
+      el("button", { class: "ghost", type: "button", id: "imp-preview" }, t("btn.preview")),
       " ",
-      el("button", { class: "primary", type: "submit" }, "Commit"),
+      el("button", { class: "primary", type: "submit" }, t("btn.commit")),
       " ", el("span", { class: "hint", id: "imp-msg" }),
     ),
     el("pre", { id: "imp-out", style: "font-family:var(--font-mono);font-size:.8rem;white-space:pre-wrap;color:var(--muted);margin-top:1rem" }),
@@ -3068,29 +4610,31 @@ async function renderAdminImport(view) {
         rows, assigned_to_user_id: pasteCoordSel.value || null,
       }) });
       $("imp-out").textContent = JSON.stringify(r, null, 2);
-      $("imp-msg").textContent = `Created ${r.created} record(s).`;
+      $("imp-msg").textContent = `${t("admin.record_created_prefix")}${r.created}${t("admin.record_created_suffix")}`;
     } catch (err) { $("imp-msg").textContent = err.message; }
   };
   view.append(card);
 }
 
 async function renderAdminEvents(view) {
+  const myToken = routeToken;  // BUG 1+2
   try {
     const { events } = await api("/api/events");
+    if (myToken !== routeToken) return;
     if (events.length) {
       const ul = el("ul", { class: "list" });
       for (const e of events) {
         const li = el("li", {},
           el("div", {}, el("strong", {}, e.name),
-            el("div", { class: "hint" }, `${e.kind} · ${e.event_date}${e.venue ? " · " + esc(e.venue) : ""}${e.batch_number ? " · batch " + e.batch_number : ""}`)),
-          el("span", { class: "pill" }, e.capacity ? `cap ${e.capacity}` : ""),
+            el("div", { class: "hint" }, `${e.kind} · ${e.event_date}${e.venue ? " · " + esc(e.venue) : ""}${e.batch_number ? t("admin.batch_prefix") + e.batch_number : ""}`)),
+          el("span", { class: "pill" }, e.capacity ? `${t("admin.cap_prefix")}${e.capacity}` : ""),
           el("div", {}),
         );
         const actions = li.lastChild;
-        const attendance = el("a", { class: "mini-btn", href: `#/events/${e.id}` }, "Attendance");
-        const del = el("button", { class: "danger", style: "margin-left:.4rem" }, "Delete");
+        const attendance = el("a", { class: "mini-btn", href: `#/events/${e.id}` }, t("btn.attendance"));
+        const del = el("button", { class: "danger", style: "margin-left:.4rem" }, t("btn.delete_short"));
         del.addEventListener("click", async () => {
-          if (!confirm(`Delete event "${e.name}"? Attendance rows are kept for audit.`)) return;
+          if (!confirm(`${t("confirm.delete_event_prefix")} "${e.name}"${t("confirm.delete_event_suffix")}`)) return;
           try {
             await api(`/api/events/${e.id}`, { method: "DELETE" });
             renderRoute();
@@ -3103,29 +4647,29 @@ async function renderAdminEvents(view) {
     }
     const form = el("form", { class: "card", method: "post", action: "javascript:void(0)" });
     form.append(
-      el("h3", { class: "section" }, "New event"),
-      formField("Name", el("input", { id: "ev-name", required: true })),
+      el("h3", { class: "section" }, t("hd.new_event")),
+      formField(t("admin.ev_field_name"), el("input", { id: "ev-name", required: true })),
       el("div", { class: "grid2" },
-        formField("Kind", el("select", { id: "ev-kind" },
-          el("option", { value: "njy1" }, "NJY 1"),
-          el("option", { value: "njy2" }, "NJY 2"),
-          el("option", { value: "njy3" }, "NJY 3"),
-          el("option", { value: "bg_session" }, "BG session"),
-          el("option", { value: "bvgm" }, "BVGM"),
-          el("option", { value: "children_program" }, "Children program"),
-          el("option", { value: "festival" }, "Festival"),
+        formField(t("admin.ev_field_kind"), el("select", { id: "ev-kind" },
+          el("option", { value: "njy1" }, t("admin.ev_kind_njy1")),
+          el("option", { value: "njy2" }, t("admin.ev_kind_njy2")),
+          el("option", { value: "njy3" }, t("admin.ev_kind_njy3")),
+          el("option", { value: "bg_session" }, t("admin.ev_kind_bg_session")),
+          el("option", { value: "bvgm" }, t("admin.ev_kind_bvgm")),
+          el("option", { value: "children_program" }, t("admin.ev_kind_children")),
+          el("option", { value: "festival" }, t("admin.ev_kind_festival")),
         )),
-        formField("Date", el("input", { id: "ev-date", type: "date", required: true })),
+        formField(t("admin.ev_field_date"), el("input", { id: "ev-date", type: "date", required: true })),
       ),
       el("div", { class: "grid2" },
-        formField("Time", el("input", { id: "ev-time", placeholder: "18:00" })),
-        formField("Venue", el("input", { id: "ev-venue" })),
+        formField(t("admin.ev_field_time"), el("input", { id: "ev-time", placeholder: t("admin.ev_ph_time") })),
+        formField(t("admin.ev_field_venue"), el("input", { id: "ev-venue" })),
       ),
       el("div", { class: "grid2" },
-        formField("Capacity", el("input", { id: "ev-cap", type: "number" })),
-        formField("Batch number", el("input", { id: "ev-batch", type: "number" })),
+        formField(t("admin.ev_field_capacity"), el("input", { id: "ev-cap", type: "number" })),
+        formField(t("admin.ev_field_batch"), el("input", { id: "ev-batch", type: "number" })),
       ),
-      el("p", {}, el("button", { class: "primary", type: "submit" }, "Save event"),
+      el("p", {}, el("button", { class: "primary", type: "submit" }, t("btn.save_event")),
         " ", el("span", { class: "hint", id: "ev-msg" })),
     );
     form.onsubmit = async (e) => {
@@ -3139,7 +4683,7 @@ async function renderAdminEvents(view) {
       };
       try {
         await api("/api/events", { method: "POST", body: JSON.stringify(body) });
-        $("ev-msg").textContent = "Saved."; renderRoute();
+        $("ev-msg").textContent = t("msg.saved_short"); renderRoute();
       } catch (err) { $("ev-msg").textContent = err.message; }
     };
     view.append(form);

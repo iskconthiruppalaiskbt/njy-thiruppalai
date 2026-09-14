@@ -12,7 +12,10 @@
 
 <section id="view-login" class="center" hidden>
   <div class="card">
-    <h2 id="login-title">Sign in</h2>
+    <div class="login-topline">
+      <h2 id="login-title">Nama-Japa-Yajna</h2>
+      <a href="#" id="login-lang-toggle" class="login-lang" title="Switch language"></a>
+    </div>
     <form id="login-form" autocomplete="on" method="post" action="javascript:void(0)">
       <label for="u" id="login-u-label">Username</label>
       <input id="u" name="username" required autocapitalize="none" autocorrect="off">
@@ -22,10 +25,9 @@
         <button type="button" class="eye-btn" id="login-eye" aria-label="Show / hide password">👁</button>
       </div>
       <p class="error" id="login-err" hidden></p>
-      <p style="margin-top:1.2rem"><button class="primary" type="submit" id="login-btn">Sign in</button></p>
+      <p style="margin-top:1.2rem"><button class="primary" type="submit" id="login-btn">Sign In</button></p>
     </form>
-    <p class="hint">Nama-Japa-Yajna coordinators &amp; leaders.<br>
-      If you don't have an account, ask the temple president.</p>
+    <p class="hint" id="login-hint">Dear Devotee, to participate in this glorious service, please contact your Service Line Authority.</p>
   </div>
 </section>
 
