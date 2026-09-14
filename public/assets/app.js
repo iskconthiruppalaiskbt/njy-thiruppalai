@@ -64,6 +64,12 @@ const ERROR_MESSAGES = {
   bad_subscription: "Push subscription data was incomplete.",
   endpoint_required: "Push endpoint missing.",
   person_id_required: "Missing person_id.",
+  person_ids_required: "Select at least one member first.",
+  user_id_required: "Pick a coordinator to assign to.",
+  leader_username_required: "Pick which leader the new coordinator reports to.",
+  not_your_coord: "That coordinator isn't in your team.",
+  bad_sl_no: "SL can only contain letters, digits, and hyphens (max 32 chars).",
+  username_required: "Type a username first.",
   group_id_required: "Missing group_id.",
   // Network / HTTP
   http_400: "The server rejected the request (400 Bad Request). Check your input.",
@@ -3136,10 +3142,15 @@ function newGroupForm() {
 
 // -------------------------------------------------- member details ---
 // ---------------------------------------------------- Members tab ---
-// Top-level searchable list of Members. Coordinators default to their
-// own Sangha (from /api/roll); leaders and HK Leader start empty and
-// use the search box (/api/people/search) to find any member. Each row
-// links to renderMemberDetails for the full editor.
+// Three-section table view of every Member in the database:
+//   1. My Members       — role-scoped ownership (coord: my roll;
+//                         leader: my coords' rolls; hk: hidden).
+//   2. Other Coords'    — assigned to someone else.
+//   3. Unassigned Pool  — assigned_to_user_id IS NULL.
+// One shared search box filters all three sections at once by name,
+// phone, or SL. Column headers are click-sortable per section. Leader
+// and HK see checkboxes on the Unassigned section plus a floating bar
+// to bulk-assign selected members to one of the coords they manage.
 async function renderMembers(view) {
   const myToken = routeToken;
   view.innerHTML = "";
@@ -3150,96 +3161,415 @@ async function renderMembers(view) {
     return;
   }
 
+  const loading = el("p", { class: "hint" }, t("msg.loading"));
+  view.append(loading);
+
+  let payload;
+  try {
+    payload = await api("/api/members/list");
+  } catch (err) {
+    if (myToken !== routeToken) return;
+    loading.remove();
+    view.append(el("p", { class: "error" }, err.message));
+    return;
+  }
+  if (myToken !== routeToken) return;
+  loading.remove();
+
+  const { people, eligible_coords } = payload;
+  const canBulkAssign = ["hk_leader", "njy_leader"].includes(ME.role) && eligible_coords.length > 0;
+
+  // Optional "+ Add Coordinator" button — leader + HK. Rendered above
+  // the search bar so it's the first thing they see on the tab. The
+  // form itself is deferred to buildAddCoordCard() so the members table
+  // renders immediately even while the form JS is being wired up.
+  const addCoordSlot = el("div", { id: "add-coord-slot" });
+  view.append(addCoordSlot);
+  if (["njy_leader", "hk_leader"].includes(ME.role)) {
+    addCoordSlot.append(buildAddCoordButton(addCoordSlot));
+  }
+
+  // Search bar (client-side filter across all 3 sections).
   const searchInput = el("input", {
     type: "search", id: "members-search",
-    placeholder: t("field.search"),
+    placeholder: t("members.search_ph"),
     autocomplete: "off", autocapitalize: "none", autocorrect: "off",
-    style: "width:100%;padding:.55rem;border:1px solid var(--line);border-radius:6px;margin-bottom:.6rem",
+    style: "width:100%;padding:.55rem;border:1px solid var(--line);border-radius:6px;margin:.4rem 0 .7rem",
   });
   view.append(searchInput);
-  const listWrap = el("div", { id: "members-list" });
-  view.append(listWrap);
 
-  const renderRows = (people, source) => {
-    if (myToken !== routeToken) return;
-    listWrap.innerHTML = "";
-    if (!people.length) {
-      listWrap.append(el("p", { class: "hint" }, t("hd.members_none")));
-      return;
-    }
-    const ul = el("ul", { class: "list" });
-    for (const p of people) {
-      const meta = [];
-      if (p.phone) meta.push(esc(p.phone));
-      if (p.pincode) meta.push(esc(p.pincode));
-      if (p.status) meta.push(esc(p.status));
-      // SL column — compact, monospace pill on the left of the row.
-      // Keep the tag rendered even when sl_no is empty so rows align.
-      const slText = (p.sl_no != null && p.sl_no !== "") ? String(p.sl_no) : "—";
-      const slTag = el("span", {
-        class: "sl-tag",
-        title: t("members.col.sl"),
-        style: "display:inline-block;min-width:4.5rem;padding:.15rem .4rem;margin-right:.55rem;"
-          + "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.78rem;"
-          + "background:var(--panel,#f3f3f3);border:1px solid var(--line);border-radius:4px;"
-          + "text-align:center;color:var(--muted,#555);",
-      }, slText);
-      ul.append(el("li", {},
-        slTag,
-        el("div", { style: "flex:1;min-width:0" },
-          el("strong", {}, p.name || p.legal_name || "-"),
-          el("div", { class: "hint" }, meta.join(" · ") || (source === "roll" ? t("team.coordinator_fallback") : "")),
-        ),
-        el("a", { class: "btn", href: `#/member/${encodeURIComponent(p.id)}` }, t("btn.edit")),
-      ));
-    }
-    listWrap.append(ul);
+  // Bucketize
+  const byId = new Map(people.map(p => [p.id, p]));
+  const buckets = { mine: [], others: [], unassigned: [] };
+  for (const p of people) buckets[p.section].push(p);
+
+  // Per-section state: search-filtered rows, sort key + direction.
+  const sectionsState = {
+    mine:       { rows: buckets.mine,       sortKey: "name", sortDir: 1 },
+    others:     { rows: buckets.others,     sortKey: "name", sortDir: 1 },
+    unassigned: { rows: buckets.unassigned, sortKey: "name", sortDir: 1 },
+  };
+  const selected = new Set();  // person ids checked in the unassigned bulk-assign UI
+
+  const sectionsWrap = el("div", { id: "members-sections" });
+  view.append(sectionsWrap);
+
+  // Bulk-assign floating bar (leader + HK only, only for unassigned).
+  const bulkBar = el("div", {
+    id: "members-bulk-bar",
+    style: "position:sticky;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--line);"
+      + "padding:.6rem;display:none;gap:.5rem;align-items:center;flex-wrap:wrap;box-shadow:0 -2px 8px rgba(0,0,0,.06);z-index:5",
+  });
+  const bulkCount = el("span", { style: "font-weight:600" }, "");
+  const bulkSelect = el("select", { style: "flex:1;min-width:10rem;padding:.4rem" });
+  bulkSelect.append(el("option", { value: "" }, t("members.bulk_pick_coord")));
+  for (const c of eligible_coords) {
+    bulkSelect.append(el("option", { value: c.id }, c.display_name));
+  }
+  const bulkBtn = el("button", { class: "primary", type: "button" }, t("members.bulk_assign_btn"));
+  const bulkMsg = el("span", { class: "hint" }, "");
+  bulkBar.append(bulkCount, bulkSelect, bulkBtn, bulkMsg);
+  if (canBulkAssign) view.append(bulkBar);
+
+  const refreshBulkBar = () => {
+    if (!canBulkAssign) return;
+    if (selected.size === 0) { bulkBar.style.display = "none"; return; }
+    bulkBar.style.display = "flex";
+    bulkCount.textContent = `${selected.size} ${t("members.bulk_selected_suffix")}`;
   };
 
-  // Default view: coord sees their own roll; leader/HK sees a prompt
-  // until they type something.
-  const loadDefault = async () => {
-    if (ME.role === "njy_coordinator") {
-      listWrap.innerHTML = "";
-      listWrap.append(el("p", { class: "hint" }, t("msg.loading")));
-      try {
-        const { roll } = await api("/api/roll");
-        if (myToken !== routeToken) return;
-        renderRows(roll.map(r => ({
-          id: r.id, name: r.name, phone: r.phone,
-          pincode: r.pincode, status: r.status, sl_no: r.sl_no,
-        })), "roll");
-      } catch (err) {
-        if (myToken !== routeToken) return;
-        listWrap.innerHTML = "";
-        listWrap.append(el("p", { class: "error" }, err.message));
+  bulkBtn.addEventListener("click", async () => {
+    const userId = bulkSelect.value;
+    if (!userId) { bulkMsg.textContent = t("members.bulk_pick_coord"); return; }
+    if (!selected.size) return;
+    bulkBtn.disabled = true;
+    bulkMsg.textContent = t("msg.loading");
+    try {
+      const ids = [...selected];
+      const r = await api("/api/members/bulk-assign", {
+        method: "POST", body: JSON.stringify({ person_ids: ids, user_id: userId }),
+      });
+      // Move the freshly-assigned rows out of the "unassigned" bucket
+      // and into "others" (never "mine" — a leader assigning to their
+      // own coord is still not the leader's ownership). Refresh the
+      // three tables in place so the operator sees the change.
+      const targetCoord = eligible_coords.find(c => c.id === userId);
+      const targetName = targetCoord ? targetCoord.display_name : "";
+      const still = [];
+      for (const p of buckets.unassigned) {
+        if (selected.has(p.id)) {
+          p.assigned_to_user_id = userId;
+          p.assigned_coord_name = targetName;
+          // For a leader: their own coords count as "mine"; for HK the
+          // caller has no "mine" bucket so it lands in "others".
+          p.section = (ME.role === "njy_leader") ? "mine" : "others";
+          if (p.section === "mine") buckets.mine.push(p);
+          else buckets.others.push(p);
+        } else {
+          still.push(p);
+        }
       }
-    } else {
-      listWrap.innerHTML = "";
-      listWrap.append(el("p", { class: "hint" }, t("help.search_mark")));
+      buckets.unassigned = still;
+      sectionsState.mine.rows = buckets.mine;
+      sectionsState.others.rows = buckets.others;
+      sectionsState.unassigned.rows = buckets.unassigned;
+      selected.clear();
+      bulkMsg.textContent = `${t("members.bulk_ok_prefix")}${r.assigned}${t("members.bulk_ok_suffix")}`;
+      bulkSelect.value = "";
+      renderAll();
+      refreshBulkBar();
+    } catch (err) {
+      bulkMsg.textContent = err.message;
+    } finally {
+      bulkBtn.disabled = false;
+    }
+  });
+
+  // Sort helpers.
+  const sortVal = (p, key) => {
+    switch (key) {
+      case "sl":     return (p.sl_no || "").toString().toLowerCase();
+      case "name":   return (p.name || "").toLowerCase();
+      case "phone":  return (p.phone || "").replace(/\D/g, "");
+      case "pin":    return p.pincode || "";
+      case "coord":  return (p.assigned_coord_name || "").toLowerCase();
+      default:       return "";
     }
   };
-  loadDefault();
+  const applySort = (rows, key, dir) => {
+    return rows.slice().sort((a, b) => {
+      const av = sortVal(a, key), bv = sortVal(b, key);
+      if (av < bv) return -1 * dir;
+      if (av > bv) return  1 * dir;
+      return 0;
+    });
+  };
+  const filterRows = (rows, q) => {
+    if (!q) return rows;
+    const lower = q.toLowerCase();
+    const digits = q.replace(/\D/g, "");
+    return rows.filter(p =>
+      (p.name || "").toLowerCase().includes(lower)
+      || (digits && (p.phone || "").replace(/\D/g, "").includes(digits))
+      || (p.sl_no != null && String(p.sl_no).toLowerCase().includes(lower)),
+    );
+  };
 
-  // Debounced server search (2+ chars). Empty string reverts to default.
+  // Build one section's card (header + count + table).
+  const buildSection = (kind, titleKey, showCoordCol, showCheckbox) => {
+    const state = sectionsState[kind];
+    const card = el("div", { class: "card", style: "margin-bottom:.8rem;padding:0;overflow:hidden" });
+    const header = el("div", { class: "spread",
+      style: "padding:.6rem .8rem;background:var(--surface-sunk);border-bottom:1px solid var(--line)" });
+    const countPill = el("span", { class: "pill" }, "0");
+    header.append(el("h3", { class: "section", style: "margin:0" }, t(titleKey)), countPill);
+    card.append(header);
+
+    // Table
+    const table = el("table", { class: "members-table",
+      style: "width:100%;border-collapse:collapse;font-size:.88rem" });
+    const thead = el("thead");
+    const trh = el("tr");
+    const cols = [];
+    if (showCheckbox) cols.push({ key: "_chk", label: "" });
+    cols.push({ key: "sl",    label: t("members.col.sl") });
+    cols.push({ key: "name",  label: t("members.col.name") });
+    cols.push({ key: "phone", label: t("members.col.phone") });
+    cols.push({ key: "pin",   label: t("members.col.pincode") });
+    if (showCoordCol) cols.push({ key: "coord", label: t("members.col.assigned_coord") });
+    cols.push({ key: "_go", label: "" });
+    for (const col of cols) {
+      const th = el("th", {
+        style: "position:sticky;top:0;background:var(--surface-sunk);text-align:left;"
+          + "padding:.45rem .6rem;border-bottom:1px solid var(--line);font-weight:600;"
+          + "cursor:" + (col.key.startsWith("_") ? "default" : "pointer"),
+      }, col.label);
+      if (!col.key.startsWith("_")) {
+        th.addEventListener("click", () => {
+          if (state.sortKey === col.key) state.sortDir *= -1;
+          else { state.sortKey = col.key; state.sortDir = 1; }
+          repaint();
+        });
+        if (state.sortKey === col.key) {
+          th.append(document.createTextNode(state.sortDir === 1 ? "  ▲" : "  ▼"));
+        }
+      }
+      trh.append(th);
+    }
+    thead.append(trh);
+    table.append(thead);
+    const tbody = el("tbody");
+    table.append(tbody);
+    card.append(table);
+    const bodyWrap = el("div", { style: "max-height:60vh;overflow:auto" });
+    // Move table into scrolling wrap. Table already appended → detach.
+    card.removeChild(table);
+    bodyWrap.append(table);
+    card.append(bodyWrap);
+
+    const repaint = () => {
+      const q = searchInput.value.trim();
+      const filtered = filterRows(state.rows, q);
+      const sorted = applySort(filtered, state.sortKey, state.sortDir);
+      countPill.textContent = String(sorted.length);
+      tbody.innerHTML = "";
+      if (!sorted.length) {
+        const tr = el("tr");
+        tr.append(el("td", {
+          colspan: cols.length,
+          style: "padding:1rem;text-align:center;color:var(--muted)",
+        }, t("members.empty_section")));
+        tbody.append(tr);
+      } else {
+        sorted.forEach((p, i) => {
+          const tr = el("tr", {
+            style: "cursor:pointer;background:" + (i % 2 ? "var(--surface-sunk)" : "transparent"),
+          });
+          tr.addEventListener("click", (ev) => {
+            // Don't hijack clicks on the checkbox / drill button.
+            if (ev.target.tagName === "INPUT" || ev.target.tagName === "A" || ev.target.tagName === "BUTTON") return;
+            location.hash = `#/member/${encodeURIComponent(p.id)}`;
+          });
+          const cellStyle = "padding:.4rem .6rem;border-bottom:1px solid var(--line)";
+          if (showCheckbox) {
+            const cb = el("input", { type: "checkbox" });
+            if (selected.has(p.id)) cb.setAttribute("checked", "");
+            cb.addEventListener("change", () => {
+              if (cb.checked) selected.add(p.id);
+              else selected.delete(p.id);
+              refreshBulkBar();
+            });
+            tr.append(el("td", { style: cellStyle }, cb));
+          }
+          tr.append(el("td", { style: cellStyle + ";font-family:var(--font-mono);font-size:.82rem;color:var(--muted)" },
+            (p.sl_no != null && p.sl_no !== "") ? String(p.sl_no) : "—"));
+          tr.append(el("td", { style: cellStyle }, p.name || "—"));
+          const phoneCell = el("td", { style: cellStyle });
+          if (p.phone) {
+            phoneCell.append(document.createTextNode(p.phone + " "));
+            phoneCell.append(wame(p.phone, "💬"));
+          } else {
+            phoneCell.append(document.createTextNode("—"));
+          }
+          tr.append(phoneCell);
+          tr.append(el("td", { style: cellStyle }, p.pincode || "—"));
+          if (showCoordCol) {
+            tr.append(el("td", { style: cellStyle }, p.assigned_coord_name || "—"));
+          }
+          tr.append(el("td", { style: cellStyle + ";text-align:right" },
+            el("a", { class: "btn", href: `#/member/${encodeURIComponent(p.id)}`,
+              onclick: (e) => e.stopPropagation() }, t("btn.open"))));
+          tbody.append(tr);
+        });
+      }
+    };
+
+    return { card, repaint };
+  };
+
+  // Coord sees My + Others + Unassigned. Leader same. HK sees Others +
+  // Unassigned only (never "mine").
+  const built = [];
+  if (ME.role !== "hk_leader") {
+    built.push(buildSection("mine", "members.section_mine", /*coord*/ false, /*chk*/ false));
+  }
+  built.push(buildSection("others", "members.section_others", /*coord*/ true, /*chk*/ false));
+  built.push(buildSection("unassigned", "members.section_unassigned", /*coord*/ false, /*chk*/ canBulkAssign));
+  for (const b of built) sectionsWrap.append(b.card);
+
+  const renderAll = () => {
+    for (const b of built) b.repaint();
+  };
+  renderAll();
+
+  // Search (debounced) — filter across all sections at once.
   let debounce = null;
   searchInput.addEventListener("input", () => {
-    const q = searchInput.value.trim();
     clearTimeout(debounce);
-    if (!q) { loadDefault(); return; }
-    if (q.length < 2) return;
-    debounce = setTimeout(async () => {
+    debounce = setTimeout(renderAll, 120);
+  });
+}
+
+// ------------------ Add Coordinator (leader + HK) inline form ------
+// Simple in-place expand from a compact "+ Add Coordinator" button.
+// Wired inside renderMembers so the form re-renders every visit and
+// picks up leader identity fresh. The form is deferred (built only on
+// first click) so the Members tab renders instantly for the common
+// case where the operator is just browsing.
+function buildAddCoordButton(slot) {
+  const btn = el("button", {
+    class: "primary", type: "button",
+    style: "margin-bottom:.4rem",
+  }, t("members.add_coord_btn"));
+  btn.addEventListener("click", () => {
+    slot.innerHTML = "";
+    slot.append(buildAddCoordCard(slot));
+  });
+  return btn;
+}
+
+function buildAddCoordCard(slot) {
+  const card = el("div", { class: "card", style: "margin-bottom:.7rem" });
+  card.append(el("h3", { class: "section", style: "margin-top:0" }, t("members.add_coord_title")));
+  const usernameI = el("input", { autocomplete: "off", autocapitalize: "none" });
+  const usernameFlag = el("span", { class: "hint", style: "margin-left:.4rem" }, "");
+  const displayI = el("input", { autocomplete: "off" });
+  const passwordI = el("input", { type: "text", autocomplete: "new-password" });
+  const phoneI = el("input", { inputmode: "tel", placeholder: "+91…" });
+  const leaderSelect = el("select", {});
+  const msg = el("span", { class: "hint", style: "margin-left:.5rem" }, "");
+  const saveBtn = el("button", { class: "primary", type: "submit" }, t("btn.save"));
+  const cancelBtn = el("button", { class: "ghost", type: "button" }, t("btn.cancel"));
+
+  const usernameWrap = el("div", {}, el("label", {}, t("field.username")),
+    el("div", { style: "display:flex;align-items:center" }, usernameI, usernameFlag));
+  const form = el("form", { method: "post", action: "javascript:void(0)" });
+  form.append(
+    el("div", {}, el("label", {}, t("field.display_name")), displayI),
+    usernameWrap,
+    el("div", {}, el("label", {}, t("field.password")), passwordI),
+    el("div", {}, el("label", {}, t("field.phone")), phoneI),
+  );
+
+  // HK-only: pick a leader to attach this coord under.
+  if (ME.role === "hk_leader") {
+    leaderSelect.append(el("option", { value: "" }, t("members.pick_leader")));
+    // Populate leader list lazily.
+    (async () => {
       try {
-        const { people } = await api(`/api/people/search?q=${encodeURIComponent(q)}`);
-        if (myToken !== routeToken) return;
-        renderRows(people, "search");
-      } catch (err) {
-        if (myToken !== routeToken) return;
-        listWrap.innerHTML = "";
-        listWrap.append(el("p", { class: "error" }, err.message));
-      }
+        const { users } = await api("/api/admin/users");
+        for (const u of users) {
+          if (u.role === "njy_leader" && u.active) {
+            leaderSelect.append(el("option", { value: u.username }, u.display_name || u.username));
+          }
+        }
+      } catch { /* fall back to empty select */ }
+    })();
+    form.append(el("div", {}, el("label", {}, t("members.leader_label")), leaderSelect));
+  }
+  form.append(el("p", { style: "margin-top:.6rem" }, saveBtn, " ", cancelBtn, msg));
+  card.append(form);
+
+  // Live username availability check (debounced).
+  let checkTimer = null;
+  usernameI.addEventListener("input", () => {
+    const v = usernameI.value.trim();
+    usernameFlag.textContent = "";
+    usernameFlag.style.color = "";
+    clearTimeout(checkTimer);
+    if (v.length < 3) return;
+    checkTimer = setTimeout(async () => {
+      try {
+        const r = await api(`/api/leader/coord-username-check?u=${encodeURIComponent(v)}`);
+        if (r.available) {
+          usernameFlag.textContent = "✓ " + t("members.uname_ok");
+          usernameFlag.style.color = "var(--mark-followed)";
+        } else {
+          usernameFlag.textContent = "✗ " + t("members.uname_taken");
+          usernameFlag.style.color = "var(--mark-attention)";
+        }
+      } catch { /* silent */ }
     }, 250);
   });
+
+  cancelBtn.addEventListener("click", () => {
+    slot.innerHTML = "";
+    slot.append(buildAddCoordButton(slot));
+  });
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    msg.textContent = "";
+    const body = {
+      username: usernameI.value.trim(),
+      password: passwordI.value,
+      display_name: displayI.value.trim(),
+      phone: phoneI.value.trim(),
+    };
+    if (ME.role === "hk_leader") body.leader_username = leaderSelect.value;
+    if (!body.username || !body.password || !body.display_name) {
+      msg.textContent = t("members.add_coord_missing"); return;
+    }
+    if (ME.role === "hk_leader" && !body.leader_username) {
+      msg.textContent = t("members.pick_leader"); return;
+    }
+    saveBtn.disabled = true;
+    try {
+      const r = await api("/api/leader/add-coord", {
+        method: "POST", body: JSON.stringify(body),
+      });
+      msg.textContent = `${t("members.add_coord_ok_prefix")}${r.user.display_name || r.user.username}${t("members.add_coord_ok_suffix")}`;
+      // Reset for another add.
+      usernameI.value = ""; displayI.value = ""; passwordI.value = ""; phoneI.value = "";
+      usernameFlag.textContent = "";
+    } catch (err) {
+      msg.textContent = err.message;
+    } finally {
+      saveBtn.disabled = false;
+    }
+  };
+
+  return card;
 }
 
 async function renderMemberDetails(personId) {
@@ -3248,8 +3578,109 @@ async function renderMemberDetails(personId) {
   view.append(el("h2", { class: "section" }, t("hd.member_details")));
   if (!personId) return view.append(el("p", { class: "hint" }, t("msg.open_via_row")));
   try {
-    const { person } = await api(`/api/member/${encodeURIComponent(personId)}`);
+    const { person, assigned_coord } = await api(`/api/member/${encodeURIComponent(personId)}`);
     if (myToken !== routeToken) return;
+
+    // Header banner: prominent "Assigned to: <coord name>" line plus a
+    // Reassign button that fetches eligible-coords lazily and PATCHes
+    // through the existing /api/person/:id/assign endpoint.
+    const banner = el("div", {
+      class: "card",
+      style: "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;padding:.7rem .9rem;margin-bottom:.7rem",
+    });
+    const assignedLabel = el("span", { style: "font-weight:600" },
+      t("members.assigned_to_label") + ": ");
+    const assignedName = el("strong", { id: "m-coord-name", style: "color:var(--ink-2)" },
+      assigned_coord ? assigned_coord.display_name : t("members.unassigned_label"));
+    banner.append(assignedLabel, assignedName);
+    const reassignBtn = el("button", { class: "btn", type: "button", style: "margin-left:auto" },
+      t("members.reassign_btn"));
+    const reassignArea = el("div", {
+      id: "m-reassign-area",
+      style: "flex-basis:100%;display:none;margin-top:.5rem;align-items:center;gap:.5rem;flex-wrap:wrap",
+    });
+    banner.append(reassignBtn, reassignArea);
+    view.append(banner);
+
+    let eligibleLoaded = false;
+    reassignBtn.addEventListener("click", async () => {
+      if (reassignArea.style.display !== "none") {
+        reassignArea.style.display = "none"; return;
+      }
+      reassignArea.style.display = "flex";
+      if (eligibleLoaded) return;
+      eligibleLoaded = true;
+      reassignArea.append(el("span", { class: "hint" }, t("msg.loading")));
+      try {
+        const { coords } = await api("/api/members/eligible-coords");
+        reassignArea.innerHTML = "";
+        const sel = el("select", { style: "flex:1;min-width:10rem;padding:.35rem" });
+        sel.append(el("option", { value: "" }, t("members.bulk_pick_coord")));
+        for (const c of coords) {
+          const opt = el("option", { value: c.id }, c.display_name);
+          if (person.assigned_to_user_id === c.id) opt.setAttribute("selected", "");
+          sel.append(opt);
+        }
+        const goBtn = el("button", { class: "primary", type: "button" }, t("btn.save"));
+        const msg = el("span", { class: "hint" }, "");
+        reassignArea.append(sel, goBtn, msg);
+        goBtn.addEventListener("click", async () => {
+          const userId = sel.value;
+          if (!userId) { msg.textContent = t("members.bulk_pick_coord"); return; }
+          goBtn.disabled = true;
+          msg.textContent = t("msg.loading");
+          try {
+            const r = await api(`/api/person/${encodeURIComponent(personId)}/assign`, {
+              method: "POST", body: JSON.stringify({ assigned_to_user_id: userId }),
+            });
+            person.assigned_to_user_id = userId;
+            const picked = coords.find(c => c.id === userId);
+            $("m-coord-name").textContent = picked ? picked.display_name : t("members.unassigned_label");
+            msg.textContent = t("msg.saved_short");
+          } catch (err) {
+            msg.textContent = err.message;
+          } finally {
+            goBtn.disabled = false;
+          }
+        });
+      } catch (err) {
+        reassignArea.innerHTML = "";
+        reassignArea.append(el("span", { class: "error" }, err.message));
+      }
+    });
+
+    // Editable SL number — small inline form so operators can fix a
+    // wrongly-typed serial without touching the full editor below.
+    const slCard = el("div", { class: "card",
+      style: "display:flex;gap:.5rem;align-items:center;padding:.6rem .9rem;margin-bottom:.7rem" });
+    slCard.append(el("span", { style: "font-weight:600" }, t("members.col.sl") + ": "));
+    const slInput = el("input", {
+      id: "m-sl", value: person.sl_no != null ? String(person.sl_no) : "",
+      style: "flex:1;max-width:12rem;padding:.35rem;font-family:var(--font-mono)",
+    });
+    const slSaveBtn = el("button", { class: "primary", type: "button" }, t("members.sl_save"));
+    const slMsg = el("span", { class: "hint" }, "");
+    slCard.append(slInput, slSaveBtn, slMsg);
+    view.append(slCard);
+    slSaveBtn.addEventListener("click", async () => {
+      const v = slInput.value.trim();
+      if (v && !/^[A-Za-z0-9\-]{1,32}$/.test(v)) {
+        slMsg.textContent = t("members.sl_invalid"); return;
+      }
+      slSaveBtn.disabled = true;
+      slMsg.textContent = t("msg.loading");
+      try {
+        await api(`/api/member/${encodeURIComponent(personId)}`, {
+          method: "POST", body: JSON.stringify({ sl_no: v === "" ? null : v }),
+        });
+        slMsg.textContent = t("members.sl_saved");
+      } catch (err) {
+        slMsg.textContent = err.message;
+      } finally {
+        slSaveBtn.disabled = false;
+      }
+    });
+
     const card = el("form", { class: "card", method: "post", action: "javascript:void(0)" });
     const F = (id, label, val, extra = {}) =>
       formField(label, el("input", { id, value: val || "", ...extra }));
