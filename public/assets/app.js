@@ -3173,7 +3173,19 @@ async function renderMembers(view) {
       if (p.phone) meta.push(esc(p.phone));
       if (p.pincode) meta.push(esc(p.pincode));
       if (p.status) meta.push(esc(p.status));
+      // SL column — compact, monospace pill on the left of the row.
+      // Keep the tag rendered even when sl_no is empty so rows align.
+      const slText = (p.sl_no != null && p.sl_no !== "") ? String(p.sl_no) : "—";
+      const slTag = el("span", {
+        class: "sl-tag",
+        title: t("members.col.sl"),
+        style: "display:inline-block;min-width:4.5rem;padding:.15rem .4rem;margin-right:.55rem;"
+          + "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.78rem;"
+          + "background:var(--panel,#f3f3f3);border:1px solid var(--line);border-radius:4px;"
+          + "text-align:center;color:var(--muted,#555);",
+      }, slText);
       ul.append(el("li", {},
+        slTag,
         el("div", { style: "flex:1;min-width:0" },
           el("strong", {}, p.name || p.legal_name || "-"),
           el("div", { class: "hint" }, meta.join(" · ") || (source === "roll" ? t("team.coordinator_fallback") : "")),
@@ -3195,7 +3207,7 @@ async function renderMembers(view) {
         if (myToken !== routeToken) return;
         renderRows(roll.map(r => ({
           id: r.id, name: r.name, phone: r.phone,
-          pincode: r.pincode, status: r.status,
+          pincode: r.pincode, status: r.status, sl_no: r.sl_no,
         })), "roll");
       } catch (err) {
         if (myToken !== routeToken) return;

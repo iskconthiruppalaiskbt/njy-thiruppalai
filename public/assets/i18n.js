@@ -335,8 +335,9 @@ const DICT = {
 
     // Member details
     "hd.members": "Members",
-    "help.members": "Edit Member details. Search by name or phone digits, then tap a row to open the full editor.",
+    "help.members": "Edit Member details. Search by name, phone digits, or SL number, then tap a row to open the full editor.",
     "hd.members_none": "No Members found.",
+    "members.col.sl": "SL",
     "hd.member_details": "Member Details",
     "msg.open_via_row": "Open via a person row (feature comes online with BV phase).",
     "hd.personal": "Personal",
@@ -1251,8 +1252,9 @@ const DICT = {
 
     // Member details
     "hd.members": "உறுப்பினர்கள்",
-    "help.members": "உறுப்பினர் விவரங்களை மாற்றவும். பெயர் அல்லது மொபைல் இலக்கங்களால் தேடவும், பின்பு முழு எடிட்டரைத் திறக்க வரிசையை தட்டவும்.",
+    "help.members": "உறுப்பினர் விவரங்களை மாற்றவும். பெயர், மொபைல் இலக்கங்கள் அல்லது SL எண்ணால் தேடவும், பின்பு முழு எடிட்டரைத் திறக்க வரிசையை தட்டவும்.",
     "hd.members_none": "உறுப்பினர்கள் இல்லை.",
+    "members.col.sl": "வ.எண்",
     "hd.member_details": "உறுப்பினர் விவரங்கள்",
     "msg.open_via_row": "நபர் வரிசை மூலம் திற (BV கட்டத்தில் இயங்கும்).",
     "hd.personal": "தனிப்பட்ட",
