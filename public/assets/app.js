@@ -631,7 +631,7 @@ function renderNav() {
     { href: "#/bv",        label: t("nav.bv"),       when: () => can("bv_structure_editor") && BV_ROLES.includes(ME.role) },
     { href: "#/janmashtami", label: t("nav.janmashtami"), when: () => can("janmashtami_view_page") && ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
     { href: "#/members",     label: t("nav.members"),     when: () => can("members_tab") && ["hk_leader","njy_leader","njy_coordinator"].includes(ME.role) },
-    { href: "#/profile",     label: t("nav.profile"), when: () => ME.role === "njy_coordinator" },
+    { href: "#/profile",     label: t("nav.profile"), when: () => ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
     { href: "#/settings",  label: t("nav.settings"), when: () => ["njy_coordinator","njy_leader","hk_leader","servant_leader","manjari_servant_leader"].includes(ME.role) },
     { href: "#/admin",     label: t("nav.admin"),    when: () => can("feature_admin") },
   ];
@@ -2198,9 +2198,24 @@ function coordCard(c) {
   const midToday = pctToday >= 60 ? 0 : (pctToday >= 30 ? 1 : 2);
   const midConsistent = pctConsistent >= 60 ? 0 : (pctConsistent >= 30 ? 1 : 2);
   // CHANGE 5 — leader → coord + HK → coord full-mesh: WhatsApp pill next to Open.
-  const coordBtns = el("div", { style: "display:flex;gap:.35rem;align-items:center" });
+  const coordBtns = el("div", { style: "display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;justify-content:flex-end" });
   if (c.phone) coordBtns.append(wame(c.phone, t("pill.wa")));
   coordBtns.append(el("a", { class: "btn", href: `#/user/${c.user_id}` }, t("btn.open")));
+  // Edit + Delete — leader can act on their own coords; HK unrestricted.
+  // Backend re-checks ownership, so it's safe to render the buttons for
+  // any leader whose /api/leader/coordinators response included this
+  // coord (that endpoint already filters to their own coords).
+  const canManageCoord = ME.role === "hk_leader"
+    || (ME.role === "njy_leader"
+        && (!c.manager_user_id || c.manager_user_id === ME.id));
+  if (canManageCoord) {
+    const editBtn = el("button", { class: "mini-btn", type: "button" }, t("team.edit_coord_btn"));
+    editBtn.addEventListener("click", () => openEditCoordModal(c));
+    coordBtns.append(editBtn);
+    const delBtn = el("button", { class: "danger", type: "button" }, t("team.delete_coord_btn"));
+    delBtn.addEventListener("click", () => openDeleteCoordConfirm(c));
+    coordBtns.append(delBtn);
+  }
   return el("div", { style: "width:100%;display:grid;grid-template-columns:1fr auto;gap:.5rem;align-items:center" },
     el("div", {},
       el("div", { class: "spread" },
@@ -2222,6 +2237,168 @@ function coordCard(c) {
       el("div", { class: "pbar", "data-mid": String(midConsistent), style: `--pct:${pctConsistent}%` }),
     ),
   );
+}
+
+// -------------------------- edit + delete coord modals ---------------
+// Rendered from coordCard's Edit / Delete buttons. Backend endpoints:
+//   POST   /api/leader/coord/:coordId — patch
+//   DELETE /api/leader/coord/:coordId — soft-delete + unassign members
+// Ownership check is enforced server-side; the UI hides the buttons
+// for coords the caller doesn't own to spare the round-trip.
+function openEditCoordModal(coord) {
+  const backdrop = el("div", {
+    style: "position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:2rem 1rem;overflow-y:auto",
+  });
+  const box = el("div", {
+    style: "background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);max-width:480px;width:100%;padding:1rem 1.2rem;box-shadow:var(--shadow)",
+  });
+  const currentName = coord.name || coord.username || "";
+  box.append(el("div", { class: "spread" },
+    el("h3", { class: "section", style: "margin:0" }, t("team.edit_coord_title") + " " + currentName),
+    el("button", { class: "ghost", type: "button", id: "ec-close" }, "✕"),
+  ));
+
+  const displayI = el("input", { autocomplete: "off", value: coord.name || "" });
+  const usernameI = el("input", {
+    autocomplete: "off", autocapitalize: "none", value: coord.username || "",
+  });
+  const usernameFlag = el("span", { class: "hint", style: "margin-left:.4rem" }, "");
+  const phoneI = el("input", { inputmode: "tel", placeholder: "+91…", value: coord.phone || "" });
+  const pincodeI = el("input", {
+    inputmode: "numeric", maxlength: "6", autocomplete: "postal-code",
+    placeholder: "560001", value: coord.pincode || "",
+  });
+  const passwordI = el("input", {
+    type: "text", autocomplete: "new-password",
+    placeholder: t("team.edit_password_placeholder"),
+  });
+  const msg = el("span", { class: "hint", style: "margin-left:.5rem" }, "");
+  const saveBtn = el("button", { class: "primary", type: "submit" }, t("btn.save"));
+  const cancelBtn = el("button", { class: "ghost", type: "button" }, t("btn.cancel"));
+
+  const form = el("form", { method: "post", action: "javascript:void(0)" });
+  form.append(
+    el("div", {}, el("label", {}, t("field.display_name")), displayI),
+    el("div", {}, el("label", {}, t("field.username")),
+      el("div", { style: "display:flex;align-items:center" }, usernameI, usernameFlag)),
+    el("div", {}, el("label", {}, t("field.phone")), phoneI),
+    el("div", {}, el("label", {}, t("field.pincode")), pincodeI,
+      el("p", { class: "hint", style: "margin:.15rem 0 .3rem;font-size:.78rem;color:var(--ink-2)" },
+        t("field.pincode_hint"))),
+    el("div", {}, el("label", {}, t("team.edit_password_label")), passwordI,
+      el("p", { class: "hint", style: "margin:.15rem 0 .3rem;font-size:.78rem;color:var(--ink-2)" },
+        t("team.edit_password_hint"))),
+  );
+  form.append(el("p", { style: "margin-top:.6rem" }, saveBtn, " ", cancelBtn, msg));
+  box.append(form);
+
+  // Live username-availability probe — same debounce + endpoint as the
+  // add-coord form. Skip when unchanged (own username is always taken).
+  let checkTimer = null;
+  usernameI.addEventListener("input", () => {
+    const v = usernameI.value.trim();
+    usernameFlag.textContent = "";
+    usernameFlag.style.color = "";
+    clearTimeout(checkTimer);
+    if (v.length < 3 || v === (coord.username || "")) return;
+    checkTimer = setTimeout(async () => {
+      try {
+        const r = await api(`/api/leader/coord-username-check?u=${encodeURIComponent(v)}`);
+        if (r.available) {
+          usernameFlag.textContent = "✓ " + t("members.uname_ok");
+          usernameFlag.style.color = "var(--mark-followed)";
+        } else {
+          usernameFlag.textContent = "✗ " + t("members.uname_taken");
+          usernameFlag.style.color = "var(--mark-attention)";
+        }
+      } catch { /* silent */ }
+    }, 250);
+  });
+
+  const close = () => backdrop.remove();
+  cancelBtn.addEventListener("click", close);
+  box.querySelector("#ec-close").addEventListener("click", close);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    msg.textContent = "";
+    const dn = displayI.value.trim();
+    const un = usernameI.value.trim();
+    const ph = phoneI.value.trim();
+    const pc = pincodeI.value.trim();
+    const pw = passwordI.value;  // no trim — spaces matter in passwords
+    if (!dn) { msg.textContent = t("profile.edit_display_required"); return; }
+    if (!un) { msg.textContent = t("profile.edit_username_required"); return; }
+    if (pc && !/^\d{6}$/.test(pc)) { msg.textContent = t("field.pincode_invalid"); return; }
+    if (pw && pw.length < 6) { msg.textContent = t("team.edit_password_too_short"); return; }
+    const body = { display_name: dn, username: un, phone: ph, pincode: pc || null };
+    if (pw) body.password = pw;
+    saveBtn.disabled = true;
+    try {
+      await api(`/api/leader/coord/${encodeURIComponent(coord.user_id)}`, {
+        method: "POST", body: JSON.stringify(body),
+      });
+      close();
+      showTeamToast(t("team.coord_updated_toast"));
+      renderRoute();
+    } catch (err) {
+      msg.textContent = err.message;
+      saveBtn.disabled = false;
+    }
+  };
+
+  backdrop.append(box);
+  document.body.append(backdrop);
+}
+
+function openDeleteCoordConfirm(coord) {
+  const name = coord.name || coord.username || "";
+  const n = Number(coord.assigned || 0);
+  const prompt = t("team.delete_confirm_prompt")
+    .replace("{name}", name)
+    .replace("{n}", String(n));
+  if (!confirm(prompt)) return;
+  (async () => {
+    try {
+      const r = await api(`/api/leader/coord/${encodeURIComponent(coord.user_id)}`, {
+        method: "DELETE",
+      });
+      const unassigned = Number(r && r.unassigned_count) || 0;
+      const toast = t("team.coord_deleted_toast")
+        .replace("{name}", name)
+        .replace("{n}", String(unassigned));
+      showTeamToast(toast);
+      renderRoute();
+    } catch (err) {
+      alert(err.message || t("team.failed"));
+    }
+  })();
+}
+
+// Reuse the profile toast slot so we only ever have one on-screen.
+function showTeamToast(text) {
+  if (_njyToastTimer) { clearTimeout(_njyToastTimer); _njyToastTimer = null; }
+  if (_njyToastEl && _njyToastEl.isConnected) _njyToastEl.remove();
+  const box = el("div", {
+    role: "status",
+    style: [
+      "position:fixed", "left:50%", "bottom:24px",
+      "transform:translateX(-50%)",
+      "background:#1f2937", "color:#fff",
+      "padding:.7rem 1rem", "border-radius:8px",
+      "box-shadow:0 4px 14px rgba(0,0,0,.25)",
+      "z-index:9999", "font-size:.9rem",
+      "max-width:min(92vw,420px)", "text-align:center",
+    ].join(";"),
+  }, text);
+  document.body.append(box);
+  _njyToastEl = box;
+  _njyToastTimer = setTimeout(() => {
+    _njyToastTimer = null;
+    if (_njyToastEl === box) _njyToastEl = null;
+    box.remove();
+  }, 6000);
 }
 
 // -------------------------------------------------------- HK dashboard ---

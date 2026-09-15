@@ -661,6 +661,17 @@ const DICT = {
     "team.status_now_prefix": "Status Now: ",
     "team.delete_confirm_prefix": "Delete ",
     "team.delete_confirm_suffix": "? This is a soft-delete - history is kept, but they will no longer appear in active lists.",
+    // Coord Edit / Delete (leader + HK, from Team page)
+    "team.edit_coord_btn": "Edit",
+    "team.delete_coord_btn": "Delete",
+    "team.edit_coord_title": "Edit coordinator: ",
+    "team.edit_password_label": "New password (optional)",
+    "team.edit_password_placeholder": "Leave blank to keep current",
+    "team.edit_password_hint": "Minimum 6 characters. Leave blank to keep the existing password.",
+    "team.edit_password_too_short": "Password must be at least 6 characters.",
+    "team.delete_confirm_prompt": "Delete coordinator {name}? This will deactivate their login and move their {n} members to the Unassigned Pool.",
+    "team.coord_updated_toast": "Coordinator updated.",
+    "team.coord_deleted_toast": "Coordinator {name} deleted. {n} members moved to Unassigned Pool.",
 
     // Events
     "ev.capacity_label": "Capacity",
@@ -1642,6 +1653,17 @@ const DICT = {
     "team.status_now_prefix": "நிலை இப்போது: ",
     "team.delete_confirm_prefix": "நீக்கவா ",
     "team.delete_confirm_suffix": "? இது soft-delete - வரலாறு வைக்கப்படும், ஆனால் அவர்கள் செயலில் உள்ள பட்டியல்களில் தோன்றமாட்டார்கள்.",
+    // Coord Edit / Delete (leader + HK, Team பக்கத்திலிருந்து)
+    "team.edit_coord_btn": "திருத்து",
+    "team.delete_coord_btn": "நீக்கு",
+    "team.edit_coord_title": "ஒருங்கிணைப்பாளரைத் திருத்து: ",
+    "team.edit_password_label": "புதிய கடவுச்சொல் (விருப்பம்)",
+    "team.edit_password_placeholder": "தற்போதுள்ளதை வைக்க வெறுமையாக விடவும்",
+    "team.edit_password_hint": "குறைந்தது 6 எழுத்துகள். தற்போதைய கடவுச்சொல்லை வைக்க வெறுமையாக விடவும்.",
+    "team.edit_password_too_short": "கடவுச்சொல் குறைந்தது 6 எழுத்துகள் இருக்க வேண்டும்.",
+    "team.delete_confirm_prompt": "ஒருங்கிணைப்பாளர் {name} ஐ நீக்கவா? அவர்களின் login செயலிழக்கப்படும், அவர்களின் {n} உறுப்பினர்கள் ஒதுக்கப்படாத Pool-க்கு நகர்த்தப்படுவார்கள்.",
+    "team.coord_updated_toast": "ஒருங்கிணைப்பாளர் புதுப்பிக்கப்பட்டார்.",
+    "team.coord_deleted_toast": "ஒருங்கிணைப்பாளர் {name} நீக்கப்பட்டார். {n} உறுப்பினர்கள் ஒதுக்கப்படாத Pool-க்கு நகர்த்தப்பட்டனர்.",
 
     // Events
     "ev.capacity_label": "கொள்ளளவு",
