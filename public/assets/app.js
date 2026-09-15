@@ -219,6 +219,20 @@ function honorificAdjust(name) {
   return out.replace(/\s+/g, " ").trim();
 }
 
+// Infer gender from a devotee display_name by matching honorific suffixes.
+// Returns "F", "M", or "?" — never null so callers can compare with ===.
+// Used by the gender-aware bulk-assign UI (Members tab, HK view).
+//   "Mataji", "Devi Dasi", "Dasi", "Bhaktin"     → F
+//   "Prabhu", "Dasa", "Das", "Bhakta"            → M
+//   Anything else (pre-initiate or ambiguous)    → ?
+function inferGender(name) {
+  if (!name) return "?";
+  const s = String(name);
+  if (/\b(?:Mataji|Devi\s+Dasi|Dasi|Bhaktin)\b/i.test(s)) return "F";
+  if (/\b(?:Prabhu|Dasa|Das|Bhakta)\b/i.test(s)) return "M";
+  return "?";
+}
+
 let ME = null, GATES = {};
 
 // -------------------------------------- route token (BUG 1+2) ------
@@ -706,21 +720,19 @@ async function renderCoordRoll(view) {
       if (ME.hk_phone) line.append(wame(ME.hk_phone, t("pill.contact_hk")));
       view.append(line);
     }
-    // Prominent Broadcast CTA — coords only, above the scoreboard tiles
-    // so it's the first action visible on My Sangha. Big teal card with
-    // a sub-line; the inline WhatsApp template editor sits directly
-    // below so users see-the-message → tap-Broadcast in one motion.
+    // Inline WhatsApp template editor — coords see and edit the message
+    // FIRST so they know what will be sent before tapping Broadcast.
+    if (roll.length > 0 && ME.role === "njy_coordinator" && can("settings_wa_templates")) {
+      view.append(renderWaTemplateCard());
+    }
+    // Prominent Broadcast CTA — sits BELOW the template so the flow is
+    // review-the-message → tap-Broadcast in one downward motion.
     if (roll.length > 0 && ME.role === "njy_coordinator" && can("myroll_broadcast_button")) {
       const cta = el("a", { class: "broadcast-cta", href: "#/broadcast" },
         el("span", { class: "broadcast-cta-label" }, t("bc.myroll_broadcast_btn")),
         el("span", { class: "broadcast-cta-sub" }, t("bc.myroll_broadcast_sub")),
       );
       view.append(cta);
-    }
-    // Inline WhatsApp template editor — sits directly below Broadcast
-    // so the coord can review-and-edit the message before sending.
-    if (roll.length > 0 && ME.role === "njy_coordinator" && can("settings_wa_templates")) {
-      view.append(renderWaTemplateCard());
     }
     view.append(tallyStrip(tally, ["assigned","chanted_today","followed_up","needs_visit"]));
     // Secondary actions row — WA group setup + CSV download. Broadcast
@@ -3254,21 +3266,100 @@ async function renderMembers(view) {
   });
   const bulkCount = el("span", { style: "font-weight:600" }, "");
   const bulkSelect = el("select", { style: "flex:1;min-width:10rem;padding:.4rem" });
+  // Precompute gender + a lookup by coord id (used by highlight + auto-fill).
+  const coordById = new Map();
+  for (const c of eligible_coords) {
+    const g = inferGender(c.display_name);
+    coordById.set(c.id, { ...c, gender: g });
+  }
   bulkSelect.append(el("option", { value: "" }, t("members.bulk_pick_coord")));
   for (const c of eligible_coords) {
-    bulkSelect.append(el("option", { value: c.id }, c.display_name));
+    const g = inferGender(c.display_name);
+    const label = `${c.display_name} (${g})`;
+    bulkSelect.append(el("option", { value: c.id }, label));
   }
+  const autoFillBtn = el("button", {
+    class: "ghost", type: "button", id: "members-autofill-btn",
+    style: "min-width:8rem",
+  }, t("members.auto_fill_btn"));
   const bulkBtn = el("button", { class: "primary", type: "button" }, t("members.bulk_assign_btn"));
   const bulkMsg = el("span", { class: "hint" }, "");
-  bulkBar.append(bulkCount, bulkSelect, bulkBtn, bulkMsg);
+  const autoFillMsg = el("span", { class: "hint", id: "members-autofill-msg" }, "");
+  bulkBar.append(bulkCount, bulkSelect, autoFillBtn, bulkBtn, autoFillMsg, bulkMsg);
   if (canBulkAssign) view.append(bulkBar);
 
   const refreshBulkBar = () => {
     if (!canBulkAssign) return;
-    if (selected.size === 0) { bulkBar.style.display = "none"; return; }
+    if (selected.size === 0 && !bulkSelect.value) { bulkBar.style.display = "none"; return; }
     bulkBar.style.display = "flex";
     bulkCount.textContent = `${selected.size} ${t("members.bulk_selected_suffix")}`;
   };
+
+  // Effective gender of a chanter — DB value first, else inferred from name.
+  const chanterGender = (p) => {
+    const raw = String(p.gender || "").toUpperCase();
+    if (raw === "M" || raw === "F") return raw;
+    return inferGender(p.name);
+  };
+
+  // Repaint the Unassigned Pool with matching-gender chanters highlighted
+  // and non-matching greyed out when the operator has picked a target
+  // coord. Called on coord-select change and after auto-fill.
+  const applyGenderHighlight = () => {
+    if (!canBulkAssign) return;
+    const coord = coordById.get(bulkSelect.value);
+    const targetG = coord ? coord.gender : "?";
+    const tbody = document.querySelector("#members-sections .members-table tbody");
+    // We identify the Unassigned section's tbody by scanning cards.
+    // Every row carries data-person-id (added below) + data-gender.
+    document.querySelectorAll("#members-sections tr[data-person-id]").forEach((tr) => {
+      const g = tr.getAttribute("data-gender") || "?";
+      tr.classList.remove("gender-match", "gender-nomatch");
+      if (!coord) return;
+      if (g === targetG && (targetG === "M" || targetG === "F")) {
+        tr.classList.add("gender-match");
+      } else {
+        tr.classList.add("gender-nomatch");
+      }
+    });
+  };
+  bulkSelect.addEventListener("change", () => {
+    applyGenderHighlight();
+    refreshBulkBar();
+    autoFillMsg.textContent = "";
+  });
+
+  // Auto-fill: pre-select up to 40 matching-gender unassigned chanters
+  // for the target coord. Tiered preference on pincode:
+  //   1. same pincode as coord (if coord has one)
+  //   2. same first-3 digits (nearby pincode)
+  //   3. anywhere
+  // Gender is strict — never mix. If only N match, tick N (leave short).
+  autoFillBtn.addEventListener("click", () => {
+    autoFillMsg.textContent = "";
+    const coord = coordById.get(bulkSelect.value);
+    if (!coord) { autoFillMsg.textContent = t("members.auto_fill_pick_coord"); return; }
+    if (coord.gender === "?") { autoFillMsg.textContent = t("members.auto_fill_ambiguous"); return; }
+    const cap = 40;
+    const coordPin = String(coord.pincode || "");
+    const coordPin3 = coordPin.slice(0, 3);
+    const matches = buckets.unassigned.filter(p => chanterGender(p) === coord.gender);
+    const scored = matches.map(p => {
+      const pin = String(p.pincode || "");
+      let tier = 3;
+      if (coordPin && pin === coordPin) tier = 1;
+      else if (coordPin3 && pin.startsWith(coordPin3)) tier = 2;
+      return { p, tier };
+    });
+    scored.sort((a, b) => a.tier - b.tier);
+    const picked = scored.slice(0, cap);
+    selected.clear();
+    for (const { p } of picked) selected.add(p.id);
+    autoFillMsg.textContent = `${t("members.auto_fill_prefix")}${picked.length}${t("members.auto_fill_suffix")}`;
+    renderAll();
+    applyGenderHighlight();
+    refreshBulkBar();
+  });
 
   bulkBtn.addEventListener("click", async () => {
     const userId = bulkSelect.value;
@@ -3356,6 +3447,7 @@ async function renderMembers(view) {
   // and don't drift when a caller tweaks inline styles.
   const buildSection = (kind, titleKey, showCoordCol, showCheckbox) => {
     const state = sectionsState[kind];
+    const showGenderCol = showCheckbox;   // gender column rides with the HK-only bulk-assign column
     const card = el("div", { class: "card", style: "margin-bottom:.8rem;padding:0;overflow:hidden" });
     const header = el("div", { class: "spread",
       style: "padding:.6rem .8rem;background:var(--surface-sunk);border-bottom:1px solid var(--line)" });
@@ -3373,6 +3465,7 @@ async function renderMembers(view) {
     if (showCheckbox) cols.push({ key: "_chk", label: "", cls: "col-check" });
     cols.push({ key: "sl",    label: t("members.col.sl"),    cls: "sl-cell" });
     cols.push({ key: "name",  label: t("members.col.name"),  cls: "name-cell" });
+    if (showGenderCol) cols.push({ key: "gender", label: t("members.col.gender"), cls: "gender-cell" });
     cols.push({ key: "phone", label: t("members.col.phone"), cls: "phone-cell" });
     cols.push({ key: "pin",   label: t("members.col.pincode"), cls: "pin-cell" });
     if (showCoordCol) cols.push({ key: "coord", label: t("members.col.assigned_coord"), cls: "coord-cell" });
@@ -3414,7 +3507,8 @@ async function renderMembers(view) {
         tbody.append(tr);
       } else {
         sorted.forEach((p) => {
-          const tr = el("tr");
+          const g = chanterGender(p);
+          const tr = el("tr", { "data-person-id": p.id, "data-gender": g });
           tr.addEventListener("click", (ev) => {
             // Don't hijack clicks on the checkbox / drill button.
             if (ev.target.tagName === "INPUT" || ev.target.tagName === "A" || ev.target.tagName === "BUTTON") return;
@@ -3433,6 +3527,9 @@ async function renderMembers(view) {
           tr.append(el("td", { class: "sl-cell" },
             (p.sl_no != null && p.sl_no !== "") ? String(p.sl_no) : "—"));
           tr.append(el("td", { class: "name-cell" }, p.name || "—"));
+          if (showGenderCol) {
+            tr.append(el("td", { class: "gender-cell" }, g));
+          }
           const phoneCell = el("td", { class: "phone-cell" });
           if (p.phone) {
             phoneCell.append(document.createTextNode(p.phone));
@@ -3496,6 +3593,7 @@ async function renderMembers(view) {
 
   const renderAll = () => {
     for (const b of built) b.repaint();
+    applyGenderHighlight();
   };
   renderAll();
 

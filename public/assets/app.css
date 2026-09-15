@@ -1144,6 +1144,31 @@ a[download]:hover {
   color: var(--ink-2);
   font-size: .82rem;
 }
+.members-table .gender-cell {
+  font-family: var(--font-mono);
+  font-size: .8rem;
+  color: var(--ink-2);
+  text-align: center;
+  width: 2.2rem;
+}
+/* Gender-aware bulk-assign highlighting: chanters whose gender matches
+   the picked coord get a green tint; non-matching ones fade so the
+   operator can't mistake them for candidates. The nth-child zebra
+   still shows through the tint. */
+.members-table tbody tr.gender-match {
+  background: color-mix(in srgb, var(--mark-followed) 12%, var(--surface));
+}
+.members-table tbody tr.gender-match:nth-child(even) {
+  background: color-mix(in srgb, var(--mark-followed) 18%, var(--surface-sunk));
+}
+.members-table tbody tr.gender-nomatch {
+  opacity: .38;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent 0 6px,
+    var(--surface-sunk) 6px 8px
+  );
+}
 .members-table .actions-cell {
   text-align: right;
   white-space: nowrap;
