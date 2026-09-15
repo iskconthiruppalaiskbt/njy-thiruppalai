@@ -3223,14 +3223,22 @@ async function renderMembers(view) {
   // Unassigned Pool at all.
   const canBulkAssign = ME.role === "hk_leader" && eligible_coords.length > 0;
 
-  // Optional "+ Add Coordinator" button — leader + HK. Rendered above
-  // the search bar so it's the first thing they see on the tab. The
-  // form itself is deferred to buildAddCoordCard() so the members table
-  // renders immediately even while the form JS is being wired up.
-  const addCoordSlot = el("div", { id: "add-coord-slot" });
-  view.append(addCoordSlot);
+  // Optional "+ Add Coordinator" / "+ Add Leader" buttons — leader + HK.
+  // Rendered above the search bar so they're the first thing operators
+  // see on the tab. The forms themselves are deferred (built only on
+  // first click) so the Members tab renders immediately for the common
+  // case where the operator is just browsing.
+  //   • Leader (njy_leader):   sees "+ Add Coordinator" only
+  //   • Super Admin (hk_leader): sees BOTH "+ Add Coordinator" and
+  //                              "+ Add Leader" side-by-side
+  const addSlot = el("div", { id: "add-coord-slot",
+    style: "display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.4rem" });
+  view.append(addSlot);
   if (["njy_leader", "hk_leader"].includes(ME.role)) {
-    addCoordSlot.append(buildAddCoordButton(addCoordSlot));
+    addSlot.append(buildAddPersonButton(addSlot, "coord"));
+  }
+  if (ME.role === "hk_leader") {
+    addSlot.append(buildAddPersonButton(addSlot, "leader"));
   }
 
   // Search bar (client-side filter across all 3 sections).
@@ -3599,27 +3607,42 @@ async function renderMembers(view) {
   });
 }
 
-// ------------------ Add Coordinator (leader + HK) inline form ------
-// Simple in-place expand from a compact "+ Add Coordinator" button.
-// Wired inside renderMembers so the form re-renders every visit and
-// picks up leader identity fresh. The form is deferred (built only on
-// first click) so the Members tab renders instantly for the common
-// case where the operator is just browsing.
-function buildAddCoordButton(slot) {
+// ------------------ Add Coordinator / Add Leader inline form -------
+// Simple in-place expand from a compact "+ Add Coordinator" or
+// "+ Add Leader" button. Wired inside renderMembers so the form
+// re-renders every visit and picks up caller identity fresh. The form
+// is deferred (built only on first click) so the Members tab renders
+// instantly for the common case where the operator is just browsing.
+//
+// kind is "coord" (leader + HK can add) or "leader" (HK Leader only).
+// A leader form has no manager dropdown and posts to /api/hk/add-leader;
+// a coord form keeps the existing HK-only "pick a leader" select and
+// posts to /api/leader/add-coord. Both share layout, live username
+// check, and the credential-share modal handoff.
+function buildAddPersonButton(slot, kind) {
+  const btnKey = kind === "leader" ? "members.add_leader_btn" : "members.add_coord_btn";
   const btn = el("button", {
-    class: "primary", type: "button",
-    style: "margin-bottom:.4rem",
-  }, t("members.add_coord_btn"));
+    class: kind === "leader" ? "ghost" : "primary", type: "button",
+  }, t(btnKey));
   btn.addEventListener("click", () => {
     slot.innerHTML = "";
-    slot.append(buildAddCoordCard(slot));
+    slot.style.display = "block";
+    slot.append(buildAddPersonCard(slot, kind));
   });
   return btn;
 }
 
-function buildAddCoordCard(slot) {
+// Keep the old name as a thin alias so any external caller (bookmark,
+// test) that still references buildAddCoordButton keeps working.
+function buildAddCoordButton(slot) { return buildAddPersonButton(slot, "coord"); }
+
+function buildAddPersonCard(slot, kind) {
+  const isLeader = kind === "leader";
+  const titleKey = isLeader ? "members.add_leader_title" : "members.add_coord_title";
+  const endpoint = isLeader ? "/api/hk/add-leader" : "/api/leader/add-coord";
+
   const card = el("div", { class: "card", style: "margin-bottom:.7rem" });
-  card.append(el("h3", { class: "section", style: "margin-top:0" }, t("members.add_coord_title")));
+  card.append(el("h3", { class: "section", style: "margin-top:0" }, t(titleKey)));
   const usernameI = el("input", { autocomplete: "off", autocapitalize: "none" });
   const usernameFlag = el("span", { class: "hint", style: "margin-left:.4rem" }, "");
   const displayI = el("input", { autocomplete: "off" });
@@ -3640,8 +3663,10 @@ function buildAddCoordCard(slot) {
     el("div", {}, el("label", {}, t("field.phone")), phoneI),
   );
 
-  // HK-only: pick a leader to attach this coord under.
-  if (ME.role === "hk_leader") {
+  // Coord form + HK Leader caller: pick a leader to attach the coord
+  // under. Leader form has NO manager — a leader sits at the top of
+  // their own subtree, so we skip the dropdown entirely.
+  if (!isLeader && ME.role === "hk_leader") {
     leaderSelect.append(el("option", { value: "" }, t("members.pick_leader")));
     // Populate leader list lazily.
     (async () => {
@@ -3659,7 +3684,9 @@ function buildAddCoordCard(slot) {
   form.append(el("p", { style: "margin-top:.6rem" }, saveBtn, " ", cancelBtn, msg));
   card.append(form);
 
-  // Live username availability check (debounced).
+  // Live username availability check (debounced). Reuses the same
+  // /api/leader/coord-username-check endpoint — it's gated to leader +
+  // HK, and returns "is any user with this username" regardless of role.
   let checkTimer = null;
   usernameI.addEventListener("input", () => {
     const v = usernameI.value.trim();
@@ -3682,8 +3709,15 @@ function buildAddCoordCard(slot) {
   });
 
   cancelBtn.addEventListener("click", () => {
+    // Restore the full button row (both buttons for HK, just coord for leader).
     slot.innerHTML = "";
-    slot.append(buildAddCoordButton(slot));
+    slot.style.display = "flex";
+    if (["njy_leader", "hk_leader"].includes(ME.role)) {
+      slot.append(buildAddPersonButton(slot, "coord"));
+    }
+    if (ME.role === "hk_leader") {
+      slot.append(buildAddPersonButton(slot, "leader"));
+    }
   });
 
   form.onsubmit = async (e) => {
@@ -3695,24 +3729,28 @@ function buildAddCoordCard(slot) {
       display_name: displayI.value.trim(),
       phone: phoneI.value.trim(),
     };
-    if (ME.role === "hk_leader") body.leader_username = leaderSelect.value;
+    if (!isLeader && ME.role === "hk_leader") body.leader_username = leaderSelect.value;
     if (!body.username || !body.password || !body.display_name) {
       msg.textContent = t("members.add_coord_missing"); return;
     }
-    if (ME.role === "hk_leader" && !body.leader_username) {
+    if (!isLeader && ME.role === "hk_leader" && !body.leader_username) {
       msg.textContent = t("members.pick_leader"); return;
     }
     saveBtn.disabled = true;
     try {
-      const r = await api("/api/leader/add-coord", {
+      const r = await api(endpoint, {
         method: "POST", body: JSON.stringify(body),
       });
       msg.textContent = `${t("members.add_coord_ok_prefix")}${r.user.display_name || r.user.username}${t("members.add_coord_ok_suffix")}`;
       // Open the credential-share modal — WhatsApp handoff for the new
-      // coord's login + a nudge to HK to slot chanters under them.
+      // account's login. For a coord created by HK we also render the
+      // "notify HK to assign members" nudge; for a leader (or any add
+      // by HK themselves), that nudge is meaningless — HK IS creating
+      // the account — so the modal suppresses it.
       openCredShareModal({
         user: r.user,
         plaintext_password: r.plaintext_password || body.password,
+        kind,
       });
       // Reset for another add.
       usernameI.value = ""; displayI.value = ""; passwordI.value = ""; phoneI.value = "";
@@ -3733,7 +3771,8 @@ function buildAddCoordCard(slot) {
 // never fetched again), and the app URL. Two WhatsApp deep-link buttons
 // let the operator hand the credentials to the coord and nudge HK to
 // assign chanters. Backdrop-click and × both close.
-function openCredShareModal({ user, plaintext_password }) {
+function openCredShareModal({ user, plaintext_password, kind }) {
+  const isLeader = kind === "leader";
   const origin = window.location.origin || "https://njy-thiruppalai.pages.dev";
   const username = user.username || "";
   const displayName = user.display_name || username;
@@ -3750,11 +3789,12 @@ function openCredShareModal({ user, plaintext_password }) {
   });
   const closeBtn = el("button", { class: "ghost", type: "button", id: "cs-close" }, "✕");
   box.append(el("div", { class: "spread" },
-    el("h3", { class: "section", style: "margin:0" }, t("cred_share.title")),
+    el("h3", { class: "section", style: "margin:0" },
+      t(isLeader ? "cred_share.title_leader" : "cred_share.title")),
     closeBtn,
   ));
   box.append(el("p", { style: "margin:.3rem 0 .8rem" },
-    t("cred_share.created_prefix"),
+    t(isLeader ? "cred_share.created_prefix_leader" : "cred_share.created_prefix"),
     el("strong", {}, displayName),
   ));
 
@@ -3779,11 +3819,14 @@ function openCredShareModal({ user, plaintext_password }) {
     + "background:#25d366;color:#fff;font-weight:600;border-radius:8px;text-decoration:none;font-size:.95rem";
   const btnDisabledStyle = btnStyle + ";background:var(--surface-sunk);color:var(--ink-2);cursor:not-allowed";
 
-  // 1) Send login to coordinator.
-  const coordMsg = [
+  // 1) Send login to the new coordinator / leader. Same message body
+  // in both cases — just swap the role noun so the recipient sees the
+  // right title. Uses honorificAdjust to render "Dasa → Prabhu" etc.
+  const roleNoun = isLeader ? "NJY Leader" : "coordinator";
+  const loginMsg = [
     `Hare Krsna ${fullHonName},`,
     ``,
-    `You have been added as a coordinator on the NJY app.`,
+    `You have been added as ${isLeader ? "an" : "a"} ${roleNoun} on the NJY app.`,
     ``,
     `URL: ${origin}`,
     `Username: ${username}`,
@@ -3793,18 +3836,22 @@ function openCredShareModal({ user, plaintext_password }) {
     ``,
     `Hare Krsna.`,
   ].join("\n");
+  const sendLabelKey = isLeader ? "cred_share.send_login_leader" : "cred_share.send_login";
   if (coordPhoneDigits) {
     box.append(el("a", {
-      href: `https://api.whatsapp.com/send/?phone=${coordPhoneDigits}&text=${encodeURIComponent(coordMsg)}`,
+      href: `https://api.whatsapp.com/send/?phone=${coordPhoneDigits}&text=${encodeURIComponent(loginMsg)}`,
       target: "_blank", rel: "noopener",
       style: btnStyle,
-    }, "📤 " + t("cred_share.send_login")));
+    }, "📤 " + t(sendLabelKey)));
   } else {
-    box.append(el("div", { style: btnDisabledStyle }, "📤 " + t("cred_share.send_login") + " (" + t("cred_share.no_phone") + ")"));
+    box.append(el("div", { style: btnDisabledStyle }, "📤 " + t(sendLabelKey) + " (" + t("cred_share.no_phone") + ")"));
   }
 
-  // 2) Notify HK to assign members. Only shown when HK phone is known.
-  if (hkPhoneDigits) {
+  // 2) Notify HK to assign members — coord-only, and only when the HK
+  // caller isn't the operator themselves (HK creating a coord already
+  // knows to assign). For a new leader there's nothing to assign.
+  const showHkNudge = !isLeader && ME.role !== "hk_leader" && hkPhoneDigits;
+  if (showHkNudge) {
     const hkMsg = [
       `Hare Krsna Prabhu,`,
       ``,

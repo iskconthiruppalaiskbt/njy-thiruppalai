@@ -1063,8 +1063,15 @@ a[download]:hover {
  * gets its own .members-table inside a .members-table-wrap so narrow
  * phones can scroll sideways instead of squishing columns.           */
 .members-table-wrap {
+  /* Bounded per-section scroll — each of the three tables scrolls
+     INDEPENDENTLY so the whole page doesn't grow to 8000+ rows tall.
+     ~60vh fits 15-20 rows on desktop; narrow phones cap a little
+     tighter (see the 640px media query below). Horizontal scroll is
+     kept for narrow columns; sticky <thead> stays pinned to the top
+     of each container while its own tbody scrolls beneath it. */
+  max-height: 60vh;
+  overflow-y: auto;
   overflow-x: auto;
-  overflow-y: visible;
   margin: 0;
 }
 .members-table {
@@ -1195,6 +1202,7 @@ a[download]:hover {
   background: transparent;
 }
 @media (max-width: 640px) {
+  .members-table-wrap { max-height: 55vh; }
   .members-table { font-size: .8rem; }
   .members-table thead th { padding: .35rem .4rem; font-size: .68rem; }
   .members-table tbody td { padding: .3rem .4rem; height: 2rem; }
