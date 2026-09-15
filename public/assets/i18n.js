@@ -7,7 +7,7 @@ const DICT = {
     // Nav
     "nav.my_roll": "My Sangha",
     "nav.team": "Team",
-    "nav.hk": "HK",
+    "nav.hk": "Super Admin",
     "nav.duties": "Duties",
     "nav.events": "Events",
     "nav.sadhana": "Sadhana",
@@ -106,7 +106,7 @@ const DICT = {
     "hd.attended_of": "Attended",
 
     // Roles
-    "role.hk_leader": "HK Leader",
+    "role.hk_leader": "Super Admin",
     "role.njy_leader": "NJY Leader",
     "role.njy_coordinator": "NJY Group Coordinator",
     "role.manjari_servant_leader": "Manjari Servant Leader",
@@ -123,7 +123,7 @@ const DICT = {
     "help.team": "Your coordinators, each shown with two progress bars. Chanted today - how many of the coordinator's whole roll chanted today. One-month daily - how many of their daily-committed Members have stuck with it for the past month (≥25 chants in the last 30 days). Tap Open to drill into any coordinator's roll and act on their behalf.",
 
     // HK dashboard
-    "hd.hk_dashboard": "HK Leader Dashboard",
+    "hd.hk_dashboard": "Super Admin Dashboard",
     "help.hk_dashboard": "Big-picture view of the whole programme. Four stat tiles show the overall count of people, how many chanted today, and how many leaders / coordinators are active. Below, every coordinator's progress bars: today's chants and one-month daily Members. Click Open on any row to drill into that coordinator's roll.",
     "hd.people": "People",
     "hd.njy_leaders": "NJY Leaders",
@@ -152,11 +152,11 @@ const DICT = {
 
     // Profile / leader link
     "hd.your_leader": "Your NJY Leader",
-    "msg.no_leader": "No leader assigned yet. Ask HK Leader to link you.",
+    "msg.no_leader": "No leader assigned yet. Ask Super Admin to link you.",
 
     // Team / HK merged
     "help.team_hk": "Big-picture view - 4 stat tiles + every coordinator. Click Open on any row to drill into their roll.",
-    "msg.no_coords_leader": "No coordinators visible yet. Ask HK Leader to link at least one coordinator to you (Admin → Users → Edit → Manager).",
+    "msg.no_coords_leader": "No coordinators visible yet. Ask Super Admin to link at least one coordinator to you (Admin → Users → Edit → Manager).",
     "msg.no_coords_hk": "No coordinators yet. Create some in Admin → Users or Admin → Bulk create users.",
 
     // Admin bulk
@@ -181,7 +181,7 @@ const DICT = {
     "hd.who_receives": "Who Receives",
     "hd.skip_chanted": "Skip Members Who Already Chanted Today",
     "hd.skip_disqualified": "Skip Disqualified Members",
-    "msg.broadcast_access": "Broadcast mode is available to NJY Coordinators, NJY Leaders, and HK Leader.",
+    "msg.broadcast_access": "Broadcast mode is available to NJY Coordinators, NJY Leaders, and Super Admin.",
     "msg.type_msg_first": "Type a message first.",
     "msg.no_match_filter": "No recipients match your filters.",
     "chip.sent": "✅ Sent:",
@@ -202,7 +202,7 @@ const DICT = {
     "hd.send_msg_group": "Send a Message to Your Group",
     "help.send_msg_group": "WhatsApp will let you pick which group to send to.",
     "help.wa_group_placeholder": "Hare Krsna! Reminder: Janmashtami practice tonight at 7 PM 🌸",
-    "msg.wa_group_access": "This screen is for NJY Coordinators, NJY Leaders, and HK Leader.",
+    "msg.wa_group_access": "This screen is for NJY Coordinators, NJY Leaders, and Super Admin.",
     "btn.test_link": "Test Link",
     "btn.clear": "Clear",
     "btn.test_emoji": "Test Emoji Rendering",
@@ -217,7 +217,7 @@ const DICT = {
     "msg.select_at_least_one": "Select at least one recipient.",
 
     // Care moments / My Roll extras
-    "msg.no_chanters_assigned": "No Members assigned yet. Ask your NJY Leader to assign your list, or (if you are the HK Leader) use bulk import from Admin.",
+    "msg.no_chanters_assigned": "No Members assigned yet. Ask your NJY Leader to assign your list, or (if you are the Super Admin) use bulk import from Admin.",
     "msg.no_coord_roll": "You don't have a coordinator roll. Try the Team or HK tabs.",
     "msg.could_not_load": "Could not load: ",
     "msg.could_not_update": "Could not update",
@@ -229,17 +229,17 @@ const DICT = {
     "hd.all_coords_title": "All Coordinators",
     "msg.no_coords_admin": "No coordinators yet. Create some in Admin → Users.",
     "msg.no_coords_leader_assigned": "No coordinators assigned to this leader yet.",
-    "hd.leader_prefix": "HK Leader:",
+    "hd.leader_prefix": "Super Admin:",
 
     // Duties
     "msg.no_access_duties": "You don't have access to duties.",
-    "msg.no_pending_duties": "No pending duties. Duties are auto-generated from the BV Action Timeline as roles get assigned. (Auto-generator not yet built - HK Leader can add duties manually via SQL for now.)",
+    "msg.no_pending_duties": "No pending duties. Duties are auto-generated from the BV Action Timeline as roles get assigned. (Auto-generator not yet built - Super Admin can add duties manually via SQL for now.)",
     "btn.done_short": "Done",
     "confirm.delete_duty": "Delete this duty?",
 
     // Events
     "msg.no_access_events": "You don't have access to the events list.",
-    "msg.no_events": "No events yet. HK Leader can create them in Admin → Events.",
+    "msg.no_events": "No events yet. Super Admin can create them in Admin → Events.",
     "hd.search_mark": "Search and Mark (Alternative)",
     "help.search_mark": "For walk-in attendees whose coordinator you don't know. Type at least 2 characters - matches name or phone digits.",
     "hd.new_event": "New Event",
@@ -261,10 +261,10 @@ const DICT = {
 
     // Leaderboard
     "hd.leaderboard": "Leaderboard",
-    "hd.hk_whole_org": "🏛 HK Leader · Whole Org",
+    "hd.hk_whole_org": "🏛 Super Admin · Whole Org",
     "msg.no_leaders_yet": "No NJY Leaders yet.",
     "msg.no_coords_yet": "No coordinators yet.",
-    "msg.leaders_lb_restricted": "Leaders leaderboard is only visible to HK Leader and NJY Leaders.",
+    "msg.leaders_lb_restricted": "Leaders leaderboard is only visible to Super Admin and NJY Leaders.",
     "hd.no_points_yet_today": "No points yet today.",
     "hd.no_points_scope": "No points yet in this scope.",
     "hd.today_leaders": "Today's Leaders",
@@ -290,7 +290,7 @@ const DICT = {
     "hd.new_user": "New User",
     "help.new_user": "Add a single leader or coordinator. Use Bulk create users when you have many at once.",
     "hd.feature_visibility": "Feature Visibility",
-    "msg.no_access_admin": "You don't have access to Admin. This section is restricted to HK Leader.",
+    "msg.no_access_admin": "You don't have access to Admin. This section is restricted to Super Admin.",
     "help.admin_paste_users": "One user per line, tab-separated: username, password, display_name, phone, role, manager_username.",
     "help.admin_paste_chanters": "Paste rows from Excel (Ctrl-C copies as tab-separated) OR as CSV. Header row first. Minimum columns: legal_name/name, phone/mobile. Optional: pincode, coupon_no, is_daily, coord_username.",
     "btn.create_user": "Create User",
@@ -354,7 +354,7 @@ const DICT = {
     "members.section_mine_team": "My Team's Members",
     "members.section_others": "Other Coords' Members",
     "members.section_unassigned": "Unassigned Pool",
-    "members.unassigned_leader_notice": "Contact HK Leader to have members from the Unassigned Pool assigned to your team's coordinators.",
+    "members.unassigned_leader_notice": "Contact Super Admin to have members from the Unassigned Pool assigned to your team's coordinators.",
     "members.empty_section": "No members in this section.",
     "members.search_ph": "Search by name, phone, or SL…",
     "members.bulk_pick_coord": "Pick a coordinator…",
@@ -377,7 +377,7 @@ const DICT = {
     "cred_share.password": "Password",
     "cred_share.url": "URL",
     "cred_share.send_login": "Send login to coordinator",
-    "cred_share.notify_hk": "Notify HK to assign members",
+    "cred_share.notify_hk": "Notify Super Admin to assign members",
     "cred_share.no_phone": "no phone on file",
     "cred_share.password_reminder": "This password is shown ONCE. Copy or send it now — it is not stored anywhere else.",
     "members.reassign_btn": "Reassign",
@@ -434,8 +434,8 @@ const DICT = {
 
     // Header pills
     "pill.leader": "Leader",
-    "pill.hk": "HK",
-    "pill.contact_hk": "Contact HK",
+    "pill.hk": "Super Admin",
+    "pill.contact_hk": "Contact Super Admin",
     "pill.contact_leader": "Contact Leader",
     "pill.wa": "WA",
 
@@ -620,8 +620,8 @@ const DICT = {
     "aria.show_hide_pw": "Show / Hide Password",
 
     // Team / leader dashboard
-    "team.hk_leader_prefix": "HK Leader: ",
-    "team.hk_leader_fallback": "HK",
+    "team.hk_leader_prefix": "Super Admin: ",
+    "team.hk_leader_fallback": "Super Admin",
     "team.loading_coords": "Loading your coordinators…",
     "team.loading_leaders": "Loading leaders…",
     "team.loading_generic": "Loading…",
@@ -726,7 +726,7 @@ const DICT = {
     "sd.confirm_delete_suffix": "?",
 
     // BV structure
-    "bv.help_prefix": "The Circle → Sector → BV Group hierarchy for Phase 4 (Feb 2027 onward). Six circles, four sectors each, three BV groups per sector. Right now HK Leader seeds it here; later, Servant Leaders run their own BV groups against it.",
+    "bv.help_prefix": "The Circle → Sector → BV Group hierarchy for Phase 4 (Feb 2027 onward). Six circles, four sectors each, three BV groups per sector. Right now Super Admin seeds it here; later, Servant Leaders run their own BV groups against it.",
     "bv.circles_prefix": "Circles (",
     "bv.sectors_prefix": "Sectors (",
     "bv.groups_prefix": "BV Groups (",
@@ -826,13 +826,13 @@ const DICT = {
     "st.wa_template_moved_notice": "Your WhatsApp message template is now edited on the My Sangha page.",
 
     // Admin
-    "admin.help_banner": "Administrative controls - HK Leader only. Feature gates toggle which roles see which parts of the app (no redeploy needed). Users lets you create logins and assign SL ranges. Bulk import brings member lists in from Excel. Events lets you create NJY / BG sessions with their real dates.",
+    "admin.help_banner": "Administrative controls - Super Admin only. Feature gates toggle which roles see which parts of the app (no redeploy needed). Users lets you create logins and assign SL ranges. Bulk import brings member lists in from Excel. Events lets you create NJY / BG sessions with their real dates.",
     "admin.tab_gates": "Feature Gates",
     "admin.tab_users": "Users",
     "admin.tab_users_bulk": "Bulk Create Users",
     "admin.tab_import": "Bulk Import Members",
     "admin.tab_events": "Events",
-    "admin.role_hk": "HK",
+    "admin.role_hk": "Super Admin",
     "admin.role_leader": "Leader",
     "admin.role_coord": "Coord",
     "admin.role_sl": "SL",
@@ -840,7 +840,7 @@ const DICT = {
     "admin.role_ss": "SS",
     "admin.role_msl": "MSL",
     "admin.role_member": "Member",
-    "admin.gates_hint": "Toggle a role checkbox to grant/revoke access. Click Save section to commit. HK Leader implicitly sees every feature regardless of the checkbox.",
+    "admin.gates_hint": "Toggle a role checkbox to grant/revoke access. Click Save section to commit. Super Admin implicitly sees every feature regardless of the checkbox.",
     "admin.gates_filter_ph": "Filter gates (e.g. janmashtami, wa_group, upload)",
     "admin.gate_count_suffix": " gate",
     "admin.gate_count_suffix_plural": " gates",
@@ -865,7 +865,7 @@ const DICT = {
     "admin.opt_servant_leader": "Servant Leader",
     "admin.opt_sector_servant": "Sector Servant",
     "admin.opt_circle_servant": "Circle Servant",
-    "admin.opt_hk_leader": "HK Leader",
+    "admin.opt_hk_leader": "Super Admin",
     "admin.user_field_username": "Username",
     "admin.user_field_display": "Display Name",
     "admin.user_field_password": "Password",
@@ -910,7 +910,7 @@ const DICT = {
     "admin.gate_section.header_global": "Header / Global",
     "admin.gate_section.my_roll": "My Sangha",
     "admin.gate_section.team_leader": "Team (Leader)",
-    "admin.gate_section.hk_dashboard": "HK Dashboard",
+    "admin.gate_section.hk_dashboard": "Super Admin Dashboard",
     "admin.gate_section.duties": "Duties",
     "admin.gate_section.events": "Events",
     "admin.gate_section.bv": "BV",
@@ -947,8 +947,8 @@ const DICT = {
     "err.duplicate_phone": "A member with that phone number already exists.",
     "err.duplicate_coupon": "A member with that coupon number already exists.",
     "err.duplicate_sl_no": "That serial number is already used.",
-    "err.coupon_or_range_required": "Enter a coupon number, or ask HK Leader to assign your coord an sl_range.",
-    "err.range_exhausted_or_missing": "Your assigned sl_no range is exhausted - ask HK Leader to widen it.",
+    "err.coupon_or_range_required": "Enter a coupon number, or ask Super Admin to assign your coord an sl_range.",
+    "err.range_exhausted_or_missing": "Your assigned sl_no range is exhausted - ask Super Admin to widen it.",
     "err.name_and_mobile_required": "Both name and mobile are required.",
     "err.rows_required": "The request had no rows to import.",
     "err.bad_body": "The request body was malformed.",
@@ -972,7 +972,7 @@ const DICT = {
     // Nav
     "nav.my_roll": "என் பட்டியல்",
     "nav.team": "குழு",
-    "nav.hk": "HK",
+    "nav.hk": "நிர்வாகி",
     "nav.duties": "கடமைகள்",
     "nav.events": "நிகழ்வுகள்",
     "nav.sadhana": "சாதனை",
@@ -1071,7 +1071,7 @@ const DICT = {
     "hd.attended_of": "வந்துள்ளார்",
 
     // Roles
-    "role.hk_leader": "HK தலைவர்",
+    "role.hk_leader": "நிர்வாகி",
     "role.njy_leader": "NJY தலைவர்",
     "role.njy_coordinator": "NJY குழு ஒருங்கிணைப்பாளர்",
     "role.manjari_servant_leader": "மஞ்சரி சேவக தலைவர்",
@@ -1088,7 +1088,7 @@ const DICT = {
     "help.team": "உங்கள் ஒருங்கிணைப்பாளர்கள், ஒவ்வொருவருக்கும் இரண்டு முன்னேற்றப் பட்டைகளுடன். இன்று ஜபித்தவர்கள் - ஒருங்கிணைப்பாளரின் மொத்த பட்டியலில் இன்று எத்தனை பேர் ஜபித்தார்கள். ஒரு மாத தினசரி - கடந்த மாதத்தில் தொடர்ந்து ஜபித்தவர்கள். எந்த ஒருங்கிணைப்பாளரின் பட்டியலையும் பார்க்க திற என்பதைத் தட்டவும்.",
 
     // HK dashboard
-    "hd.hk_dashboard": "HK தலைவர் டாஷ்போர்டு",
+    "hd.hk_dashboard": "நிர்வாகி டாஷ்போர்டு",
     "help.hk_dashboard": "முழு திட்டத்தின் பெரிய படம். நான்கு புள்ளிவிவரங்கள் மொத்த மக்கள், இன்று ஜபித்தவர்கள், செயலிலுள்ள தலைவர்கள் / ஒருங்கிணைப்பாளர்கள் எண்ணிக்கையைக் காட்டுகின்றன. கீழே ஒவ்வொரு ஒருங்கிணைப்பாளரின் முன்னேற்றப் பட்டைகள்.",
     "hd.people": "மக்கள்",
     "hd.njy_leaders": "NJY தலைவர்கள்",
@@ -1117,11 +1117,11 @@ const DICT = {
 
     // Profile / leader link
     "hd.your_leader": "உங்கள் NJY தலைவர்",
-    "msg.no_leader": "இன்னும் தலைவர் ஒதுக்கப்படவில்லை. HK தலைவரிடம் இணைக்கச் சொல்லவும்.",
+    "msg.no_leader": "இன்னும் தலைவர் ஒதுக்கப்படவில்லை. நிர்வாகியிடம் இணைக்கச் சொல்லவும்.",
 
     // Team / HK merged
     "help.team_hk": "முழு படம் - 4 புள்ளிவிவர பட்டைகள் + அனைத்து ஒருங்கிணைப்பாளர்கள். ஒருங்கிணைப்பாளரின் பட்டியலைப் பார்க்க திற என்பதைத் தட்டவும்.",
-    "msg.no_coords_leader": "இன்னும் ஒருங்கிணைப்பாளர்கள் ஒதுக்கப்படவில்லை. HK தலைவரிடம் உங்களுக்கு குறைந்தது ஒரு ஒருங்கிணைப்பாளரை இணைக்கச் சொல்லவும் (நிர்வாகம் → பயனர்கள் → திருத்து → மேலாளர்).",
+    "msg.no_coords_leader": "இன்னும் ஒருங்கிணைப்பாளர்கள் ஒதுக்கப்படவில்லை. நிர்வாகியிடம் உங்களுக்கு குறைந்தது ஒரு ஒருங்கிணைப்பாளரை இணைக்கச் சொல்லவும் (நிர்வாகம் → பயனர்கள் → திருத்து → மேலாளர்).",
     "msg.no_coords_hk": "இன்னும் ஒருங்கிணைப்பாளர்கள் இல்லை. நிர்வாகம் → பயனர்கள் அல்லது நிர்வாகம் → பயனர்களை மொத்தமாக உருவாக்கு என்பதில் உருவாக்கவும்.",
 
     // Admin bulk
@@ -1146,7 +1146,7 @@ const DICT = {
     "hd.who_receives": "யாருக்கு அனுப்பப்படும்",
     "hd.skip_chanted": "இன்று ஏற்கனவே ஜபித்தவர்களைத் தவிர்",
     "hd.skip_disqualified": "தகுதி இழந்தவர்களைத் தவிர்",
-    "msg.broadcast_access": "பிராட்காஸ்ட் NJY ஒருங்கிணைப்பாளர்கள், NJY தலைவர்கள் மற்றும் HK தலைவருக்கு மட்டும்.",
+    "msg.broadcast_access": "பிராட்காஸ்ட் NJY ஒருங்கிணைப்பாளர்கள், NJY தலைவர்கள் மற்றும் நிர்வாகிக்கு மட்டும்.",
     "msg.type_msg_first": "முதலில் ஒரு செய்தியை உள்ளிடவும்.",
     "msg.no_match_filter": "வடிகட்டியில் யாரும் பொருந்தவில்லை.",
     "chip.sent": "✅ அனுப்பப்பட்டது:",
@@ -1167,7 +1167,7 @@ const DICT = {
     "hd.send_msg_group": "உங்கள் குழுவிற்கு செய்தி அனுப்பவும்",
     "help.send_msg_group": "நீங்கள் எந்த குழுவிற்கு அனுப்ப வேண்டும் என்பதை WhatsApp தேர்ந்தெடுக்க அனுமதிக்கும்.",
     "help.wa_group_placeholder": "ஹரே கிருஷ்ணா! நினைவூட்டல்: இன்று இரவு 7 மணிக்கு ஜென்மாஷ்டமி பயிற்சி 🌸",
-    "msg.wa_group_access": "இந்த திரை NJY ஒருங்கிணைப்பாளர்கள், NJY தலைவர்கள் மற்றும் HK தலைவருக்கு மட்டும்.",
+    "msg.wa_group_access": "இந்த திரை NJY ஒருங்கிணைப்பாளர்கள், NJY தலைவர்கள் மற்றும் நிர்வாகிக்கு மட்டும்.",
     "btn.test_link": "இணைப்பை சோதி",
     "btn.clear": "அழி",
     "btn.test_emoji": "எமோஜி காட்சியை சோதி",
@@ -1182,8 +1182,8 @@ const DICT = {
     "msg.select_at_least_one": "குறைந்தது ஒருவரையாவது தேர்ந்தெடுக்கவும்.",
 
     // Care moments / My Roll extras
-    "msg.no_chanters_assigned": "இன்னும் ஜபிப்பவர்கள் ஒதுக்கப்படவில்லை. உங்கள் NJY தலைவரிடம் பட்டியலை ஒதுக்கச் சொல்லவும் (அல்லது HK தலைவராக இருந்தால், நிர்வாகத்தில் இருந்து மொத்த இறக்குமதி செய்யவும்).",
-    "msg.no_coord_roll": "உங்களுக்கு ஒருங்கிணைப்பாளர் பட்டியல் இல்லை. குழு அல்லது HK டேபை முயற்சிக்கவும்.",
+    "msg.no_chanters_assigned": "இன்னும் ஜபிப்பவர்கள் ஒதுக்கப்படவில்லை. உங்கள் NJY தலைவரிடம் பட்டியலை ஒதுக்கச் சொல்லவும் (அல்லது நிர்வாகியாக இருந்தால், நிர்வாகத்தில் இருந்து மொத்த இறக்குமதி செய்யவும்).",
+    "msg.no_coord_roll": "உங்களுக்கு ஒருங்கிணைப்பாளர் பட்டியல் இல்லை. குழு அல்லது நிர்வாகி டேபை முயற்சிக்கவும்.",
     "msg.could_not_load": "ஏற்ற முடியவில்லை: ",
     "msg.could_not_update": "புதுப்பிக்க முடியவில்லை",
     "msg.could_not_update_status": "நிலையை புதுப்பிக்க முடியவில்லை",
@@ -1194,17 +1194,17 @@ const DICT = {
     "hd.all_coords_title": "அனைத்து ஒருங்கிணைப்பாளர்கள்",
     "msg.no_coords_admin": "இன்னும் ஒருங்கிணைப்பாளர்கள் இல்லை. நிர்வாகம் → பயனர்களில் உருவாக்கவும்.",
     "msg.no_coords_leader_assigned": "இந்த தலைவருக்கு இன்னும் ஒருங்கிணைப்பாளர்கள் ஒதுக்கப்படவில்லை.",
-    "hd.leader_prefix": "HK தலைவர்:",
+    "hd.leader_prefix": "நிர்வாகி:",
 
     // Duties
     "msg.no_access_duties": "உங்களுக்கு கடமைகளுக்கான அணுகல் இல்லை.",
-    "msg.no_pending_duties": "நிலுவை கடமைகள் இல்லை. BV Action Timeline-ல் இருந்து பாத்திரங்கள் ஒதுக்கப்படும்போது கடமைகள் தானாக உருவாக்கப்படும். (Auto-generator இன்னும் கட்டப்படவில்லை - HK தலைவர் SQL மூலம் கைமுறையாக சேர்க்கலாம்.)",
+    "msg.no_pending_duties": "நிலுவை கடமைகள் இல்லை. BV Action Timeline-ல் இருந்து பாத்திரங்கள் ஒதுக்கப்படும்போது கடமைகள் தானாக உருவாக்கப்படும். (Auto-generator இன்னும் கட்டப்படவில்லை - நிர்வாகி SQL மூலம் கைமுறையாக சேர்க்கலாம்.)",
     "btn.done_short": "முடிந்தது",
     "confirm.delete_duty": "இந்த கடமையை நீக்கவா?",
 
     // Events
     "msg.no_access_events": "உங்களுக்கு நிகழ்வு பட்டியலுக்கான அணுகல் இல்லை.",
-    "msg.no_events": "இன்னும் நிகழ்வுகள் இல்லை. HK தலைவர் நிர்வாகம் → நிகழ்வுகள் மூலம் உருவாக்கலாம்.",
+    "msg.no_events": "இன்னும் நிகழ்வுகள் இல்லை. நிர்வாகி நிர்வாகம் → நிகழ்வுகள் மூலம் உருவாக்கலாம்.",
     "hd.search_mark": "தேடி குறி (மாற்று)",
     "help.search_mark": "ஒருங்கிணைப்பாளர் தெரியாத நடந்து வந்தவர்களுக்கு. குறைந்தது 2 எழுத்துக்களை தட்டச்சு செய்யுங்கள் - பெயர் அல்லது மொபைல் எண்ணுடன் பொருந்தும்.",
     "hd.new_event": "புதிய நிகழ்வு",
@@ -1226,10 +1226,10 @@ const DICT = {
 
     // Leaderboard
     "hd.leaderboard": "தலைவர் பட்டியல்",
-    "hd.hk_whole_org": "🏛 HK தலைவர் · முழு அமைப்பு",
+    "hd.hk_whole_org": "🏛 நிர்வாகி · முழு அமைப்பு",
     "msg.no_leaders_yet": "இன்னும் NJY தலைவர்கள் இல்லை.",
     "msg.no_coords_yet": "இன்னும் ஒருங்கிணைப்பாளர்கள் இல்லை.",
-    "msg.leaders_lb_restricted": "தலைவர் தலைவர் பட்டியல் HK தலைவர் மற்றும் NJY தலைவர்களுக்கு மட்டுமே தெரியும்.",
+    "msg.leaders_lb_restricted": "தலைவர் தலைவர் பட்டியல் நிர்வாகி மற்றும் NJY தலைவர்களுக்கு மட்டுமே தெரியும்.",
     "hd.no_points_yet_today": "இன்று இன்னும் புள்ளிகள் இல்லை.",
     "hd.no_points_scope": "இந்த வரம்பில் இன்னும் புள்ளிகள் இல்லை.",
     "hd.today_leaders": "இன்றைய தலைவர்கள்",
@@ -1255,7 +1255,7 @@ const DICT = {
     "hd.new_user": "புதிய பயனர்",
     "help.new_user": "ஒரு தலைவர் அல்லது ஒருங்கிணைப்பாளரைச் சேர். பலரை ஒரே நேரத்தில் சேர்க்க Bulk create users பயன்படுத்தவும்.",
     "hd.feature_visibility": "அம்ச காட்சி கட்டுப்பாடு",
-    "msg.no_access_admin": "உங்களுக்கு நிர்வாகத்திற்கான அணுகல் இல்லை. இந்த பகுதி HK தலைவருக்கு மட்டும்.",
+    "msg.no_access_admin": "உங்களுக்கு நிர்வாகத்திற்கான அணுகல் இல்லை. இந்த பகுதி நிர்வாகிக்கு மட்டும்.",
     "help.admin_paste_users": "ஒரு பயனருக்கு ஒரு வரி, tab-separated: username, password, display_name, phone, role, manager_username.",
     "help.admin_paste_chanters": "Excel-ல் இருந்து வரிசைகளை ஒட்டவும் (Ctrl-C tab-separated-ஆக நகல் எடுக்கும்) அல்லது CSV-ஆக. முதல் வரி header. குறைந்தபட்ச நெடுவரிசைகள்: legal_name/name, phone/mobile. விருப்பம்: pincode, coupon_no, is_daily, coord_username.",
     "btn.create_user": "பயனரை உருவாக்கு",
@@ -1319,7 +1319,7 @@ const DICT = {
     "members.section_mine_team": "என் குழுவின் உறுப்பினர்கள்",
     "members.section_others": "மற்ற ஒருங்கிணைப்பாளர்களின் உறுப்பினர்கள்",
     "members.section_unassigned": "ஒதுக்கப்படாத பட்டியல்",
-    "members.unassigned_leader_notice": "ஒதுக்கப்படாத பட்டியலில் உள்ள உறுப்பினர்களை உங்கள் குழுவின் ஒருங்கிணைப்பாளர்களுக்கு ஒதுக்க HK தலைவரைத் தொடர்பு கொள்ளவும்.",
+    "members.unassigned_leader_notice": "ஒதுக்கப்படாத பட்டியலில் உள்ள உறுப்பினர்களை உங்கள் குழுவின் ஒருங்கிணைப்பாளர்களுக்கு ஒதுக்க நிர்வாகியைத் தொடர்பு கொள்ளவும்.",
     "members.empty_section": "இந்தப் பகுதியில் உறுப்பினர்கள் இல்லை.",
     "members.search_ph": "பெயர், மொபைல் அல்லது வ.எண் மூலம் தேடு…",
     "members.bulk_pick_coord": "ஒருங்கிணைப்பாளரைத் தேர்ந்தெடு…",
@@ -1342,7 +1342,7 @@ const DICT = {
     "cred_share.password": "கடவுச்சொல்",
     "cred_share.url": "இணைப்பு",
     "cred_share.send_login": "ஒருங்கிணைப்பாளருக்கு உள்நுழைவை அனுப்பு",
-    "cred_share.notify_hk": "உறுப்பினர்களை ஒதுக்க HK-க்கு அறிவி",
+    "cred_share.notify_hk": "உறுப்பினர்களை ஒதுக்க நிர்வாகிக்கு அறிவி",
     "cred_share.no_phone": "தொலைபேசி இல்லை",
     "cred_share.password_reminder": "இந்தக் கடவுச்சொல் ஒரே ஒரு முறை காட்டப்படுகிறது. இப்போதே நகலெடு அல்லது அனுப்பு — வேறு எங்கும் சேமிக்கப்படவில்லை.",
     "members.reassign_btn": "மறு ஒதுக்கீடு",
@@ -1399,8 +1399,8 @@ const DICT = {
 
     // Header pills
     "pill.leader": "தலைவர்",
-    "pill.hk": "எச்.கே அழை",
-    "pill.contact_hk": "HK-ஐ தொடர்பு கொள்",
+    "pill.hk": "நிர்வாகி",
+    "pill.contact_hk": "நிர்வாகியை தொடர்பு கொள்",
     "pill.contact_leader": "தலைவரை தொடர்பு கொள்",
     "pill.wa": "WA",
 
@@ -1585,8 +1585,8 @@ const DICT = {
     "aria.show_hide_pw": "கடவுச்சொல்லை காட்டு / மறை",
 
     // Team / leader dashboard
-    "team.hk_leader_prefix": "HK தலைவர்: ",
-    "team.hk_leader_fallback": "HK",
+    "team.hk_leader_prefix": "நிர்வாகி: ",
+    "team.hk_leader_fallback": "நிர்வாகி",
     "team.loading_coords": "உங்கள் ஒருங்கிணைப்பாளர்களை ஏற்றுகிறது…",
     "team.loading_leaders": "தலைவர்களை ஏற்றுகிறது…",
     "team.loading_generic": "ஏற்றுகிறது…",
@@ -1691,7 +1691,7 @@ const DICT = {
     "sd.confirm_delete_suffix": "?",
 
     // BV structure
-    "bv.help_prefix": "Phase 4-க்கான (Feb 2027 முதல்) Circle → Sector → BV Group படிநிலை. ஆறு circles, ஒவ்வொன்றும் நான்கு sectors, ஒரு sector-க்கு மூன்று BV groups. இப்போது HK தலைவர் இதை இங்கு seed செய்கிறார்; பின்பு, Servant Leaders தங்கள் சொந்த BV groups-ஐ இதை எதிர்த்து இயக்குவார்கள்.",
+    "bv.help_prefix": "Phase 4-க்கான (Feb 2027 முதல்) Circle → Sector → BV Group படிநிலை. ஆறு circles, ஒவ்வொன்றும் நான்கு sectors, ஒரு sector-க்கு மூன்று BV groups. இப்போது நிர்வாகி இதை இங்கு seed செய்கிறார்; பின்பு, Servant Leaders தங்கள் சொந்த BV groups-ஐ இதை எதிர்த்து இயக்குவார்கள்.",
     "bv.circles_prefix": "Circles (",
     "bv.sectors_prefix": "Sectors (",
     "bv.groups_prefix": "BV groups (",
@@ -1791,13 +1791,13 @@ const DICT = {
     "st.could_not_update": "புதுப்பிக்க முடியவில்லை.",
 
     // Admin
-    "admin.help_banner": "நிர்வாக கட்டுப்பாடுகள் - HK தலைவருக்கு மட்டும். Feature gates எந்த பாத்திரங்கள் செயலியின் எந்த பகுதிகளைக் காணும் என்பதை மாற்றும் (redeploy தேவையில்லை). Users உள்நுழைவுகளை உருவாக்கவும் SL ranges ஒதுக்கவும் அனுமதிக்கிறது. Bulk import Excel-லிருந்து ஜபிப்பவர்கள் பட்டியலை கொண்டு வருகிறது. Events NJY / BG sessions உருவாக்க அனுமதிக்கிறது.",
+    "admin.help_banner": "நிர்வாக கட்டுப்பாடுகள் - நிர்வாகிக்கு மட்டும். Feature gates எந்த பாத்திரங்கள் செயலியின் எந்த பகுதிகளைக் காணும் என்பதை மாற்றும் (redeploy தேவையில்லை). Users உள்நுழைவுகளை உருவாக்கவும் SL ranges ஒதுக்கவும் அனுமதிக்கிறது. Bulk import Excel-லிருந்து ஜபிப்பவர்கள் பட்டியலை கொண்டு வருகிறது. Events NJY / BG sessions உருவாக்க அனுமதிக்கிறது.",
     "admin.tab_gates": "Feature gates",
     "admin.tab_users": "பயனர்கள்",
     "admin.tab_users_bulk": "பயனர்களை மொத்தமாக உருவாக்கு",
     "admin.tab_import": "ஜபிப்பவர்களை மொத்தமாக இறக்குமதி",
     "admin.tab_events": "நிகழ்வுகள்",
-    "admin.role_hk": "HK",
+    "admin.role_hk": "நிர்வாகி",
     "admin.role_leader": "தலைவர்",
     "admin.role_coord": "ஒருங்கி.",
     "admin.role_sl": "SL",
@@ -1805,7 +1805,7 @@ const DICT = {
     "admin.role_ss": "SS",
     "admin.role_msl": "MSL",
     "admin.role_member": "உறுப்பினர்",
-    "admin.gates_hint": "அணுகலை வழங்க/திரும்பப் பெற ஒரு பாத்திர checkbox-ஐ toggle செய்யவும். Commit செய்ய Save section-ஐ கிளிக் செய்யவும். Checkbox-ஐ பொருட்படுத்தாமல் HK தலைவர் ஒவ்வொரு அம்சத்தையும் மறைமுகமாக காண்கிறார்.",
+    "admin.gates_hint": "அணுகலை வழங்க/திரும்பப் பெற ஒரு பாத்திர checkbox-ஐ toggle செய்யவும். Commit செய்ய Save section-ஐ கிளிக் செய்யவும். Checkbox-ஐ பொருட்படுத்தாமல் நிர்வாகி ஒவ்வொரு அம்சத்தையும் மறைமுகமாக காண்கிறார்.",
     "admin.gates_filter_ph": "Gates-ஐ filter செய் (எ.கா. janmashtami, wa_group, upload)",
     "admin.gate_count_suffix": " gate",
     "admin.gate_count_suffix_plural": " gates",
@@ -1830,7 +1830,7 @@ const DICT = {
     "admin.opt_servant_leader": "சேவக தலைவர்",
     "admin.opt_sector_servant": "பிரிவு சேவகர்",
     "admin.opt_circle_servant": "வட்ட சேவகர்",
-    "admin.opt_hk_leader": "HK தலைவர்",
+    "admin.opt_hk_leader": "நிர்வாகி",
     "admin.user_field_username": "பயனர் பெயர்",
     "admin.user_field_display": "காட்சி பெயர்",
     "admin.user_field_password": "கடவுச்சொல்",
@@ -1875,7 +1875,7 @@ const DICT = {
     "admin.gate_section.header_global": "தலைப்பு / பொது",
     "admin.gate_section.my_roll": "என் பட்டியல்",
     "admin.gate_section.team_leader": "குழு (தலைவர்)",
-    "admin.gate_section.hk_dashboard": "HK டாஷ்போர்டு",
+    "admin.gate_section.hk_dashboard": "நிர்வாகி டாஷ்போர்டு",
     "admin.gate_section.duties": "கடமைகள்",
     "admin.gate_section.events": "நிகழ்வுகள்",
     "admin.gate_section.bv": "பக்திவ்ருக்ஷா",
@@ -1912,8 +1912,8 @@ const DICT = {
     "err.duplicate_phone": "அந்த மொபைல் எண்ணுடன் ஒரு ஜபிப்பவர் ஏற்கனவே உள்ளார்.",
     "err.duplicate_coupon": "அந்த கூப்பன் எண்ணுடன் ஒரு ஜபிப்பவர் ஏற்கனவே உள்ளார்.",
     "err.duplicate_sl_no": "அந்த வரிசை எண் ஏற்கனவே பயன்பாட்டில் உள்ளது.",
-    "err.coupon_or_range_required": "ஒரு கூப்பன் எண்ணை உள்ளிடவும், அல்லது HK தலைவரிடம் உங்கள் ஒருங்கிணைப்பாளருக்கு sl_range ஒதுக்கக் கேட்கவும்.",
-    "err.range_exhausted_or_missing": "உங்களுக்கு ஒதுக்கப்பட்ட sl_no range முடிந்துவிட்டது - HK தலைவரிடம் அதை விரிவாக்கக் கேட்கவும்.",
+    "err.coupon_or_range_required": "ஒரு கூப்பன் எண்ணை உள்ளிடவும், அல்லது நிர்வாகியிடம் உங்கள் ஒருங்கிணைப்பாளருக்கு sl_range ஒதுக்கக் கேட்கவும்.",
+    "err.range_exhausted_or_missing": "உங்களுக்கு ஒதுக்கப்பட்ட sl_no range முடிந்துவிட்டது - நிர்வாகியிடம் அதை விரிவாக்கக் கேட்கவும்.",
     "err.name_and_mobile_required": "பெயர் மற்றும் மொபைல் இரண்டும் தேவை.",
     "err.rows_required": "இறக்குமதி செய்ய request-ல் வரிசைகள் இல்லை.",
     "err.bad_body": "Request body தவறாக உள்ளது.",

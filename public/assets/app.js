@@ -53,8 +53,8 @@ const ERROR_MESSAGES = {
   duplicate_phone: "A member with that phone number already exists.",
   duplicate_coupon: "A member with that coupon number already exists.",
   duplicate_sl_no: "That serial number is already used.",
-  coupon_or_range_required: "Enter a coupon number, or ask HK Leader to assign your coord an sl_range.",
-  range_exhausted_or_missing: "Your assigned sl_no range is exhausted. Ask HK Leader to widen it.",
+  coupon_or_range_required: "Enter a coupon number, or ask Super Admin to assign your coord an sl_range.",
+  range_exhausted_or_missing: "Your assigned sl_no range is exhausted. Ask Super Admin to widen it.",
   name_and_mobile_required: "Both name and mobile are required.",
   // Bulk
   rows_required: "The request had no rows to import.",
@@ -3573,17 +3573,11 @@ async function renderMembers(view) {
     built.push(buildSection("mine", "members.section_mine", /*coord*/ false, /*chk*/ false));
     for (const b of built) sectionsWrap.append(b.card);
   } else if (ME.role === "njy_leader") {
+    // Leaders see ONLY their team's members. Unassigned Pool is Super
+    // Admin's responsibility, not exposed here.
     const mine = buildSection("mine", "members.section_mine_team", /*coord*/ true, /*chk*/ false);
-    const unassigned = buildSection("unassigned", "members.section_unassigned", /*coord*/ false, /*chk*/ false);
-    built.push(mine, unassigned);
+    built.push(mine);
     sectionsWrap.append(mine.card);
-    // Info notice sits above the view-only Unassigned Pool for leaders.
-    sectionsWrap.append(el("p", {
-      class: "hint",
-      style: "margin:.6rem .2rem .3rem;padding:.55rem .7rem;background:var(--surface-sunk);"
-        + "border-left:3px solid var(--peacock-deep);border-radius:4px;font-size:.88rem",
-    }, t("members.unassigned_leader_notice")));
-    sectionsWrap.append(unassigned.card);
   } else {
     // hk_leader
     built.push(buildSection("others", "members.section_others", /*coord*/ true, /*chk*/ false));
@@ -3856,17 +3850,24 @@ async function renderMemberDetails(personId) {
     const assignedName = el("strong", { id: "m-coord-name", style: "color:var(--ink-2)" },
       assigned_coord ? assigned_coord.display_name : t("members.unassigned_label"));
     banner.append(assignedLabel, assignedName);
-    const reassignBtn = el("button", { class: "btn", type: "button", style: "margin-left:auto" },
-      t("members.reassign_btn"));
-    const reassignArea = el("div", {
-      id: "m-reassign-area",
-      style: "flex-basis:100%;display:none;margin-top:.5rem;align-items:center;gap:.5rem;flex-wrap:wrap",
-    });
-    banner.append(reassignBtn, reassignArea);
+    // Reassign is a leader / Super Admin action — coords cannot move
+    // members off/onto other rolls. Only render the button for those roles.
+    const canReassign = ME.role === "hk_leader" || ME.role === "njy_leader";
+    let reassignBtn = null;
+    let reassignArea = null;
+    if (canReassign) {
+      reassignBtn = el("button", { class: "btn", type: "button", style: "margin-left:auto" },
+        t("members.reassign_btn"));
+      reassignArea = el("div", {
+        id: "m-reassign-area",
+        style: "flex-basis:100%;display:none;margin-top:.5rem;align-items:center;gap:.5rem;flex-wrap:wrap",
+      });
+      banner.append(reassignBtn, reassignArea);
+    }
     view.append(banner);
 
     let eligibleLoaded = false;
-    reassignBtn.addEventListener("click", async () => {
+    if (reassignBtn) reassignBtn.addEventListener("click", async () => {
       if (reassignArea.style.display !== "none") {
         reassignArea.style.display = "none"; return;
       }
