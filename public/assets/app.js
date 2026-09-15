@@ -194,6 +194,31 @@ function recomputeBead(r) {
 }
 const humanRole = (r) => t("role." + r) !== "role." + r ? t("role." + r) : r;
 
+// Adjust a devotee's legal name into the form used in WhatsApp greetings:
+//   1. Strip a leading honorific prefix (HG / HH / Bhakta / Bhaktin /
+//      Srila / Sri) so "HG Adideva Giridhari Dasa" collapses to
+//      "Adideva Giridhari Dasa".
+//   2. Suffix swap (whole-word, case-insensitive):
+//        "Devi Dasi"    → "Mataji"   (checked BEFORE "Dasi" alone)
+//        "Dasi"         → "Mataji"
+//        "Dasa" / "Das" → "Prabhu"
+// A pre-initiate ("Anand") returns unchanged. Server-side twin lives in
+// lib/handlers.js honorificAdjust() — keep the two in sync.
+function honorificAdjust(name) {
+  if (!name) return "";
+  let out = String(name).trim();
+  const PREFIX_RE = /^(?:HG|HH|Srila|Sri|Bhakta|Bhaktin)\b[.\s]+/i;
+  while (PREFIX_RE.test(out)) out = out.replace(PREFIX_RE, "");
+  if (/\bDevi\s+Dasi\b/i.test(out)) {
+    out = out.replace(/\bDevi\s+Dasi\b/i, "Mataji");
+  } else if (/\bDasi\b/i.test(out)) {
+    out = out.replace(/\bDasi\b/i, "Mataji");
+  } else if (/\b(?:Dasa|Das)\b/i.test(out)) {
+    out = out.replace(/\b(?:Dasa|Das)\b/i, "Prabhu");
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
 let ME = null, GATES = {};
 
 // -------------------------------------- route token (BUG 1+2) ------
@@ -1147,7 +1172,11 @@ function renderBroadcastQueue(view) {
 
   // Current chanter card
   const cur = state.queue[state.index];
-  const filledMsg = state.messageTemplate.replace(/\{name\}/g, (cur.name || "").split(" ")[0] || cur.name || "");
+  // Case-insensitive placeholder — {name}, {Name}, {NAME} all resolve.
+  // Substitute the FULL name (not just first name) after passing it
+  // through honorificAdjust, so "HG Krishna Dasa" reads "Krishna Prabhu"
+  // and "Radha Devi Dasi" reads "Radha Mataji".
+  const filledMsg = state.messageTemplate.replace(/\{name\}/gi, honorificAdjust(cur.name || ""));
   // wa.me wants phone digits only — leaving "+" in (encoded as %2B) breaks
   // recipient matching on some WhatsApp clients and falls back to the
   // compose picker, which re-parses the ?text= param under a non-UTF-8
@@ -3177,7 +3206,10 @@ async function renderMembers(view) {
   loading.remove();
 
   const { people, eligible_coords } = payload;
-  const canBulkAssign = ["hk_leader", "njy_leader"].includes(ME.role) && eligible_coords.length > 0;
+  // Bulk-assign is HK Leader only. Leaders now see Unassigned Pool as
+  // view-only (they must ask HK Leader to assign). Coord no longer sees
+  // Unassigned Pool at all.
+  const canBulkAssign = ME.role === "hk_leader" && eligible_coords.length > 0;
 
   // Optional "+ Add Coordinator" button — leader + HK. Rendered above
   // the search bar so it's the first thing they see on the tab. The
@@ -3434,15 +3466,33 @@ async function renderMembers(view) {
     return { card, repaint };
   };
 
-  // Coord sees My + Others + Unassigned. Leader same. HK sees Others +
-  // Unassigned only (never "mine").
+  // Role-scoped tables:
+  //   njy_coordinator → only "My Members" (no Others, no Unassigned).
+  //   njy_leader      → "My Team's Members" + Unassigned Pool (view-only,
+  //                     with an info notice above pointing at HK Leader).
+  //   hk_leader       → Other Coords' Members + Unassigned Pool (bulk-assign).
   const built = [];
-  if (ME.role !== "hk_leader") {
+  if (ME.role === "njy_coordinator") {
     built.push(buildSection("mine", "members.section_mine", /*coord*/ false, /*chk*/ false));
+    for (const b of built) sectionsWrap.append(b.card);
+  } else if (ME.role === "njy_leader") {
+    const mine = buildSection("mine", "members.section_mine_team", /*coord*/ true, /*chk*/ false);
+    const unassigned = buildSection("unassigned", "members.section_unassigned", /*coord*/ false, /*chk*/ false);
+    built.push(mine, unassigned);
+    sectionsWrap.append(mine.card);
+    // Info notice sits above the view-only Unassigned Pool for leaders.
+    sectionsWrap.append(el("p", {
+      class: "hint",
+      style: "margin:.6rem .2rem .3rem;padding:.55rem .7rem;background:var(--surface-sunk);"
+        + "border-left:3px solid var(--peacock-deep);border-radius:4px;font-size:.88rem",
+    }, t("members.unassigned_leader_notice")));
+    sectionsWrap.append(unassigned.card);
+  } else {
+    // hk_leader
+    built.push(buildSection("others", "members.section_others", /*coord*/ true, /*chk*/ false));
+    built.push(buildSection("unassigned", "members.section_unassigned", /*coord*/ false, /*chk*/ canBulkAssign));
+    for (const b of built) sectionsWrap.append(b.card);
   }
-  built.push(buildSection("others", "members.section_others", /*coord*/ true, /*chk*/ false));
-  built.push(buildSection("unassigned", "members.section_unassigned", /*coord*/ false, /*chk*/ canBulkAssign));
-  for (const b of built) sectionsWrap.append(b.card);
 
   const renderAll = () => {
     for (const b of built) b.repaint();
@@ -3566,6 +3616,12 @@ function buildAddCoordCard(slot) {
         method: "POST", body: JSON.stringify(body),
       });
       msg.textContent = `${t("members.add_coord_ok_prefix")}${r.user.display_name || r.user.username}${t("members.add_coord_ok_suffix")}`;
+      // Open the credential-share modal — WhatsApp handoff for the new
+      // coord's login + a nudge to HK to slot chanters under them.
+      openCredShareModal({
+        user: r.user,
+        plaintext_password: r.plaintext_password || body.password,
+      });
       // Reset for another add.
       usernameI.value = ""; displayI.value = ""; passwordI.value = ""; phoneI.value = "";
       usernameFlag.textContent = "";
@@ -3577,6 +3633,108 @@ function buildAddCoordCard(slot) {
   };
 
   return card;
+}
+
+// ------------------ Credential-share modal --------------------------
+// Opens right after a successful add-coord POST. Shows the new coord's
+// username, plaintext password (echoed once from the server response —
+// never fetched again), and the app URL. Two WhatsApp deep-link buttons
+// let the operator hand the credentials to the coord and nudge HK to
+// assign chanters. Backdrop-click and × both close.
+function openCredShareModal({ user, plaintext_password }) {
+  const origin = window.location.origin || "https://njy-thiruppalai.pages.dev";
+  const username = user.username || "";
+  const displayName = user.display_name || username;
+  const coordPhoneDigits = String(user.phone || "").replace(/\D/g, "");
+  const hkPhoneDigits = String(ME && ME.hk_phone || "").replace(/\D/g, "");
+  const fullHonName = honorificAdjust(displayName);
+
+  const backdrop = el("div", {
+    id: "cred-share-backdrop",
+    style: "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:flex-start;justify-content:center;padding:2rem 1rem;overflow-y:auto",
+  });
+  const box = el("div", {
+    style: "background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);max-width:520px;width:100%;padding:1rem 1.2rem;box-shadow:var(--shadow)",
+  });
+  const closeBtn = el("button", { class: "ghost", type: "button", id: "cs-close" }, "✕");
+  box.append(el("div", { class: "spread" },
+    el("h3", { class: "section", style: "margin:0" }, t("cred_share.title")),
+    closeBtn,
+  ));
+  box.append(el("p", { style: "margin:.3rem 0 .8rem" },
+    t("cred_share.created_prefix"),
+    el("strong", {}, displayName),
+  ));
+
+  // Boxed credentials display.
+  const credRow = (label, value) => el("div", {
+    style: "display:flex;gap:.5rem;padding:.35rem 0;border-bottom:1px dashed var(--line);font-size:.92rem",
+  },
+    el("span", { style: "flex:0 0 5.5rem;color:var(--ink-2);font-weight:600" }, label),
+    el("span", { style: "flex:1;word-break:break-all;font-family:ui-monospace,monospace" }, value),
+  );
+  const credsBox = el("div", {
+    style: "background:var(--surface-sunk);border:1px solid var(--line);border-radius:6px;padding:.5rem .8rem;margin-bottom:.9rem",
+  },
+    credRow(t("cred_share.username"), username),
+    credRow(t("cred_share.password"), plaintext_password || ""),
+    credRow(t("cred_share.url"), origin),
+  );
+  box.append(credsBox);
+
+  // WhatsApp buttons.
+  const btnStyle = "display:block;width:100%;text-align:center;padding:.75rem;margin-bottom:.55rem;"
+    + "background:#25d366;color:#fff;font-weight:600;border-radius:8px;text-decoration:none;font-size:.95rem";
+  const btnDisabledStyle = btnStyle + ";background:var(--surface-sunk);color:var(--ink-2);cursor:not-allowed";
+
+  // 1) Send login to coordinator.
+  const coordMsg = [
+    `Hare Krsna ${fullHonName},`,
+    ``,
+    `You have been added as a coordinator on the NJY app.`,
+    ``,
+    `URL: ${origin}`,
+    `Username: ${username}`,
+    `Password: ${plaintext_password || ""}`,
+    ``,
+    `Please log in and change your password after first sign-in.`,
+    ``,
+    `Hare Krsna.`,
+  ].join("\n");
+  if (coordPhoneDigits) {
+    box.append(el("a", {
+      href: `https://api.whatsapp.com/send/?phone=${coordPhoneDigits}&text=${encodeURIComponent(coordMsg)}`,
+      target: "_blank", rel: "noopener",
+      style: btnStyle,
+    }, "📤 " + t("cred_share.send_login")));
+  } else {
+    box.append(el("div", { style: btnDisabledStyle }, "📤 " + t("cred_share.send_login") + " (" + t("cred_share.no_phone") + ")"));
+  }
+
+  // 2) Notify HK to assign members. Only shown when HK phone is known.
+  if (hkPhoneDigits) {
+    const hkMsg = [
+      `Hare Krsna Prabhu,`,
+      ``,
+      `I have added a new coordinator: ${displayName}.`,
+      `Please assign chanters from the Unassigned Pool to their roll.`,
+      ``,
+      `Hare Krsna.`,
+    ].join("\n");
+    box.append(el("a", {
+      href: `https://api.whatsapp.com/send/?phone=${hkPhoneDigits}&text=${encodeURIComponent(hkMsg)}`,
+      target: "_blank", rel: "noopener",
+      style: btnStyle,
+    }, "📤 " + t("cred_share.notify_hk")));
+  }
+
+  box.append(el("p", { class: "hint", style: "margin-top:.7rem;font-size:.82rem" },
+    t("cred_share.password_reminder")));
+
+  closeBtn.addEventListener("click", () => backdrop.remove());
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.remove(); });
+  backdrop.append(box);
+  document.body.append(backdrop);
 }
 
 async function renderMemberDetails(personId) {
