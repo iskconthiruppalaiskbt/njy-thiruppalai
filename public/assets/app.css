@@ -529,34 +529,35 @@ textarea { min-height: 4rem; resize: vertical; }
 
 /* -------------------------------------------------- roll list */
 .roll { list-style: none; padding: 0; margin: 0; }
+/* Flex-wrap layout at ALL widths. The old fixed 6-column grid was
+ * built for 6 controls; we now have 8+ (Chant?, WhatsApp, Call,
+ * Save contact, Not on WhatsApp?, Calendar, Manage), which overflowed
+ * the grid and pushed the Member dropdown onto the name. Flex-wrap
+ * lets the row breathe: name gets its own space, controls flow to
+ * the next line when the viewport can't hold them. */
 .roll li {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
-  align-items: center; gap: .5rem;
-  padding: .6rem .3rem; border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .45rem;
+  padding: .7rem .3rem;
+  border-bottom: 1px solid var(--line);
 }
-/* On narrow screens (phone portrait), switch to flex so the row wraps
- * naturally: bead + name on line 1, lifecycle dropdown full-width on
- * line 2, action buttons (chant / WhatsApp / 📅 / Manage) on line 3.
- * Everything gets touchable space, nothing overlaps. */
+.roll li > .bead-wrap  { order: 1; }
+.roll li > .name       { order: 2; flex: 1 1 12rem; min-width: 0; }
+.roll li > .lifecycle  { order: 3; }
+.roll li > .chant-tag  { order: 4; }
+.roll li > .contact-pills { order: 5; flex-wrap: wrap; }
+.roll li > .wa         { order: 5; }
+.roll li > .history-btn { order: 6; }
+.roll li > .mini-btn   { order: 7; }
+.roll li > .history-strip { order: 8; width: 100%; }
+.roll li > .manage        { order: 9; }
 @media (max-width: 640px) {
-  .roll li {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: .45rem;
-    padding: .7rem .3rem;
-  }
-  .roll li > .bead-wrap  { order: 1; }
-  .roll li > .name       { order: 2; flex: 1 1 auto; min-width: 0; }
-  .roll li > .lifecycle  { order: 3; width: 100%; margin-top: .1rem; }
-  .roll li > .chant-tag  { order: 4; }
-  .roll li > .wa         { order: 5; }
-  .roll li > .history-btn { order: 6; }
-  .roll li > .mini-btn   { order: 7; }
-  /* The 14-day history strip stays full-width when it opens */
-  .roll li > .history-strip { order: 8; width: 100%; }
-  .roll li > .manage        { order: 9; width: 100%; }
+  /* On phone, put lifecycle + manage each on their own full line so
+   * touch targets stay big. */
+  .roll li > .lifecycle  { width: 100%; margin-top: .1rem; }
+  .roll li > .manage     { width: 100%; }
 }
 .roll .lifecycle {
   font-family: var(--font-mono);
