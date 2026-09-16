@@ -4660,6 +4660,15 @@ function buildAddPersonCard(slot, kind) {
     class: "hint",
     style: "margin:.15rem 0 .3rem;font-size:.78rem;color:var(--ink-2)",
   }, t("field.pincode_hint"));
+  // Explicit gender radio so auto-assign can match reliably. Name-only
+  // inference misses common Tamil first names without a devotional
+  // suffix.
+  const genderF = el("input", { type: "radio", name: "gender", value: "F" });
+  const genderM = el("input", { type: "radio", name: "gender", value: "M" });
+  const genderWrap = el("div", { style: "display:flex;gap:1rem;align-items:center" },
+    el("label", { style: "display:flex;gap:.35rem;align-items:center" }, genderF, " Mataji"),
+    el("label", { style: "display:flex;gap:.35rem;align-items:center" }, genderM, " Prabhu"),
+  );
   const leaderSelect = el("select", {});
   const msg = el("span", { class: "hint", style: "margin-left:.5rem" }, "");
   const saveBtn = el("button", { class: "primary", type: "submit" }, t("btn.save"));
@@ -4674,6 +4683,7 @@ function buildAddPersonCard(slot, kind) {
     el("div", {}, el("label", {}, t("field.password")), passwordI),
     el("div", {}, el("label", {}, t("field.phone")), phoneI),
     el("div", {}, el("label", {}, t("field.pincode")), pincodeI, pincodeHint),
+    el("div", {}, el("label", {}, t("field.gender")), genderWrap),
   );
 
   // Coord form + HK Leader caller: pick a leader to attach the coord
@@ -4747,12 +4757,14 @@ function buildAddPersonCard(slot, kind) {
     if (pincodeRaw && !/^\d{6}$/.test(pincodeRaw)) {
       msg.textContent = t("field.pincode_invalid"); return;
     }
+    const gender = genderF.checked ? "F" : (genderM.checked ? "M" : null);
     const body = {
       username: usernameI.value.trim(),
       password: passwordI.value,
       display_name: displayI.value.trim(),
       phone: phoneI.value.trim(),
       pincode: pincodeRaw || null,
+      gender,
     };
     if (!isLeader && ME.role === "hk_leader") body.leader_username = leaderSelect.value;
     if (!body.username || !body.password || !body.display_name) {
@@ -5080,6 +5092,52 @@ async function renderMemberDetails(personId) {
       };
       paintWa();
       view.append(waCard);
+    }
+
+    // Gender editor — the auto-assign strict gender match relies on this
+    // being M or F. Members with unknown ('?') gender aren't picked up
+    // by auto-fill. Small inline card so HK/leader can fix in one tap.
+    if (["njy_coordinator", "njy_leader", "hk_leader"].includes(ME.role)) {
+      const gCard = el("div", { class: "card",
+        style: "display:flex;gap:.5rem;align-items:center;padding:.6rem .9rem;margin-bottom:.7rem;flex-wrap:wrap" });
+      const paintG = () => {
+        gCard.innerHTML = "";
+        gCard.append(el("span", { style: "font-weight:600" }, t("field.gender") + ": "));
+        const gVal = person.gender === "F" ? t("field.gender_f")
+                  : person.gender === "M" ? t("field.gender_m")
+                  : t("field.gender_unknown");
+        gCard.append(el("span", { class: "hint" }, gVal));
+        const setBtn = (val, label) => {
+          const b = el("button", { type: "button", class: "mini-btn",
+            style: "background:transparent;border:1px solid var(--line);color:var(--muted);padding:.2rem .55rem;border-radius:6px;font-size:.75rem;cursor:pointer" }, label);
+          if (person.gender === val) {
+            b.style.borderColor = "var(--peacock-deep, #0E4F52)";
+            b.style.color = "var(--peacock-deep, #0E4F52)";
+            b.style.fontWeight = "600";
+          }
+          b.addEventListener("click", async (e) => {
+            e.preventDefault();
+            b.disabled = true;
+            try {
+              await api(`/api/member/${encodeURIComponent(personId)}`, {
+                method: "POST", body: JSON.stringify({ gender: val }),
+              });
+              person.gender = val;
+              paintG();
+            } catch (err) {
+              alert(err.message);
+              b.disabled = false;
+            }
+          });
+          return b;
+        };
+        const btnWrap = el("div", { style: "margin-left:auto;display:flex;gap:.4rem" });
+        btnWrap.append(setBtn("F", t("field.gender_f")));
+        btnWrap.append(setBtn("M", t("field.gender_m")));
+        gCard.append(btnWrap);
+      };
+      paintG();
+      view.append(gCard);
     }
 
     const card = el("form", { class: "card", method: "post", action: "javascript:void(0)" });
