@@ -933,6 +933,155 @@ function wame(phone, label) {
   }, "💬 ", label || "WhatsApp");
 }
 
+// SMS fallback pill (rendered when wa_status === 0). Opens the native
+// SMS composer with an optional pre-filled body. Uses the same +91
+// prefix rule as callBtn so the composer resolves the country code.
+function smsBtn(phone, body) {
+  const digits = String(phone || "").replace(/[^\d]/g, "");
+  if (!digits) return el("span", { hidden: true });
+  const tel = digits.length === 10 ? `+91${digits}` : `+${digits}`;
+  const href = body
+    ? `sms:${tel}?body=${encodeURIComponent(body)}`
+    : `sms:${tel}`;
+  return el("a", {
+    class: "btn",
+    href,
+    title: `${t("btn.sms")} ${tel}`,
+    style: "text-decoration:none;padding:.15rem .55rem;border-radius:6px;font-size:.78rem;font-weight:500;background:#f97316;color:#fff;border:none",
+    onclick: (e) => e.stopPropagation(),
+  }, t("btn.sms"));
+}
+
+// "Invite to WhatsApp" pill — an SMS with a WA download link. Rendered
+// alongside smsBtn so a coord can nudge a non-WA member to install.
+function inviteWaBtn(phone) {
+  const digits = String(phone || "").replace(/[^\d]/g, "");
+  if (!digits) return el("span", { hidden: true });
+  const tel = digits.length === 10 ? `+91${digits}` : `+${digits}`;
+  const body = "Hare Krsna! Please install WhatsApp: https://whatsapp.com/dl";
+  return el("a", {
+    class: "btn",
+    href: `sms:${tel}?body=${encodeURIComponent(body)}`,
+    title: t("btn.invite_to_wa"),
+    style: "text-decoration:none;padding:.15rem .55rem;border-radius:6px;font-size:.78rem;font-weight:500;background:#eab308;color:#111;border:none",
+    onclick: (e) => e.stopPropagation(),
+  }, t("btn.invite_to_wa"));
+}
+
+// Tiny "Not on WhatsApp?" toggle. Renders as a small text link next to
+// the row's WA button. Clicking flips wa_status between null (unknown)
+// and 0 (confirmed not on WA), swapping the row's button set in place.
+//   row: the roll row (mutated on success so the caller's cached copy
+//        stays in sync with the DOM after the toggle round-trips).
+//   onFlipped: callback the caller uses to re-render the button strip
+//              (rollList wires this to swap wa ↔ sms/invite pills).
+function markNonWaBtn(row, onFlipped) {
+  const btn = el("button", {
+    type: "button",
+    class: "mini-btn",
+    title: t("btn.mark_non_wa"),
+    style: "background:transparent;border:none;color:var(--muted);font-size:.72rem;text-decoration:underline;cursor:pointer;padding:.15rem .25rem",
+  }, row.wa_status === 0 ? t("btn.on_wa_toggle") : t("btn.mark_non_wa"));
+  btn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    btn.disabled = true;
+    // Toggle: 0 ↔ null. If it's currently 1 (confirmed WA), treat as null
+    // for the toggle — a coord flipping "Not on WhatsApp?" resets an old
+    // confirmation.
+    const next = row.wa_status === 0 ? null : 0;
+    try {
+      await api(`/api/member/${encodeURIComponent(row.id)}/wa-status`, {
+        method: "POST",
+        body: JSON.stringify({ wa_status: next }),
+      });
+      row.wa_status = next;
+      if (typeof onFlipped === "function") onFlipped();
+    } catch (err) {
+      alert(err.message || t("msg.could_not_update_status"));
+      btn.disabled = false;
+    }
+  });
+  return btn;
+}
+
+// Tel: dial-out button. `<a href="tel:+91<digits>">` prompts the phone
+// to dial. Returns a hidden placeholder if the phone is missing so
+// callers don't need to null-check. Prefixes +91 to bare 10-digit
+// Indian numbers so the dialler doesn't ambiguously interpret them.
+function callBtn(phone) {
+  const digits = String(phone || "").replace(/[^\d]/g, "");
+  if (!digits) return el("span", { hidden: true });
+  const tel = digits.length === 10 ? `+91${digits}` : `+${digits}`;
+  return el("a", {
+    class: "btn",
+    href: `tel:${tel}`,
+    title: `${t("btn.call")} ${tel}`,
+    style: "text-decoration:none;padding:.15rem .55rem;border-radius:6px;font-size:.78rem;font-weight:500;background:#22c55e;color:#fff;border:none",
+    onclick: (e) => e.stopPropagation(),
+  }, t("btn.call"));
+}
+
+// vCard (v3.0) download button. Generates a .vcf file on the fly with
+// the honorific-adjusted display name + a +91-prefixed mobile number,
+// so tapping it on a phone opens the contact-app "Add contact" flow.
+// Client-side only: Blob + URL.createObjectURL() + <a download>. Works
+// on iOS Safari + Android Chrome; no backend, no permissions.
+//   sl_no / pincode are optional — they land in the NOTE field for
+//   quick recognition when the contact is later looked up.
+function saveContactBtn(rawName, phone, sl_no, pincode) {
+  const digits = String(phone || "").replace(/[^\d]/g, "");
+  if (!digits) return el("span", { hidden: true });
+  const fn = honorificAdjust(rawName || "").trim() || String(rawName || "").trim() || "NJY Member";
+  const btn = el("button", {
+    type: "button",
+    class: "btn",
+    title: t("btn.save_contact"),
+    style: "text-decoration:none;padding:.15rem .55rem;border-radius:6px;font-size:.78rem;font-weight:500;background:#0ea5e9;color:#fff;border:none;cursor:pointer",
+  }, t("btn.save_contact"));
+  btn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    // Prefix with +91 if not already E.164-ish. Digits-only + 10 chars →
+    // add "+91"; anything else use as-is with a leading + (11-13 digit
+    // countries or already-e164 numbers). Never strip a "+".
+    const tel = digits.length === 10 ? `+91${digits}` : `+${digits}`;
+    const parts = [];
+    parts.push("BEGIN:VCARD");
+    parts.push("VERSION:3.0");
+    parts.push(`FN:${vcardEscape(fn)}`);
+    parts.push(`N:${vcardEscape(fn)};;;;`);
+    parts.push(`TEL;TYPE=CELL:${tel}`);
+    const noteBits = ["NJY Member"];
+    if (sl_no != null && sl_no !== "") noteBits.push(`SL ${sl_no}`);
+    if (pincode) noteBits.push(String(pincode));
+    parts.push(`NOTE:${vcardEscape(noteBits.join(" · "))}`);
+    parts.push("END:VCARD");
+    parts.push("");
+    const vcf = parts.join("\r\n");
+    const blob = new Blob([vcf], { type: "text/vcard;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slugify(fn)}.vcf`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  });
+  return btn;
+}
+
+// vCard 3.0 escape: backslash, comma, semicolon and newline. FN + N +
+// NOTE are the only free-text fields we write, so this covers all.
+function vcardEscape(s) {
+  return String(s || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;");
+}
+
 // Renders the two nav buttons (Broadcast + WA Group) shown on the
 // coord's My Roll, the leader's Team page, and the HK Leader's leaders
 // list. Recipient list is derived from the role — see
@@ -979,10 +1128,14 @@ async function renderBroadcast(view) {
 async function loadBroadcastRecipients() {
   if (ME.role === "njy_coordinator") {
     const { roll } = await api("/api/roll");
+    // Exclude members already known to be off WhatsApp (wa_status === 0)
+    // — tapping Send on a broadcast row for them just wastes the coord's
+    // time. Unknown (null) and confirmed-WA (1) both stay in.
+    const eligible = (roll || []).filter(r => r.wa_status !== 0);
     return {
       kind: "members",
       label: t("wg.invitees_chanters"),
-      recipients: (roll || []).map(r => ({
+      recipients: eligible.map(r => ({
         id: r.id, name: r.name, phone: r.phone,
         chanted_today: !!r.chanted_today, bead_color: r.bead_color,
       })),
@@ -1899,12 +2052,26 @@ function rollList(roll, editable) {
       }
     });
 
-    const wa = el("a", { class: "wa", href: r.wa_url, target: "_blank", rel: "noopener" }, t("btn.whatsapp"));
-    // Auto-mark contacted + undo toast on wa.me open. Only fires for
-    // rows that are currently fresh (contact_state === 0). No-op for
-    // rows already marked contacted/responded/needs_visit. Editable-
-    // only — read-only views don't get to change status.
-    if (editable) attachWaAutoMarkContacted(wa, r, rowBead);
+    // Contact-pill container — WA (or SMS + Invite-to-WA when the member
+    // is confirmed not on WhatsApp), Call, Save contact, and a small
+    // "Not on WhatsApp?" toggle. rebuildContact() rewrites this in place
+    // so flipping wa_status shows the right pills without a full re-render.
+    const contactWrap = el("span", { class: "contact-pills", style: "display:inline-flex;gap:.35rem;flex-wrap:wrap;align-items:center" });
+    const rebuildContact = () => {
+      contactWrap.innerHTML = "";
+      if (r.wa_status === 0) {
+        contactWrap.append(smsBtn(r.phone, null));
+        contactWrap.append(inviteWaBtn(r.phone));
+      } else {
+        const wa = el("a", { class: "wa", href: r.wa_url, target: "_blank", rel: "noopener" }, t("btn.whatsapp"));
+        if (editable) attachWaAutoMarkContacted(wa, r, rowBead);
+        contactWrap.append(wa);
+      }
+      contactWrap.append(callBtn(r.phone));
+      contactWrap.append(saveContactBtn(r.name, r.phone, r.sl_no, r.pincode));
+      if (editable) contactWrap.append(markNonWaBtn(r, rebuildContact));
+    };
+    rebuildContact();
 
     // "History" button — expands a 14-day chant strip below the row
     const historyBtn = el("button", { class: "history-btn", title: t("title.chant_history") }, "📅");
@@ -1915,7 +2082,7 @@ function rollList(roll, editable) {
       li.append(strip);
     });
 
-    li.append(el("div", { class: "bead-wrap" }, rowBead), name, lifecycle, chant, wa, historyBtn);
+    li.append(el("div", { class: "bead-wrap" }, rowBead), name, lifecycle, chant, contactWrap, historyBtn);
     ul.appendChild(li);
   });
   return ul;
@@ -1999,8 +2166,9 @@ function leaderRowCard(l) {
   const activePct = l.coord_count ? Math.round(100 * l.active_coords_today / l.coord_count) : 0;
   const chantedPct = l.assigned ? Math.round(100 * l.chanted_today / l.assigned) : 0;
   // CHANGE 5 — HK → leader full-mesh: WhatsApp pill next to Open.
-  const rightBtns = el("div", { style: "display:flex;gap:.35rem;align-items:center" });
+  const rightBtns = el("div", { style: "display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;justify-content:flex-end" });
   if (l.phone) rightBtns.append(wame(l.phone, t("pill.wa")));
+  if (l.phone) rightBtns.append(callBtn(l.phone));
   rightBtns.append(el("a", { class: "btn", href: `#/leader/${l.user_id}` }, t("btn.open")));
   return el("div", { style: "width:100%;display:grid;grid-template-columns:1fr auto;gap:.5rem;align-items:center" },
     el("div", {},
@@ -2035,62 +2203,84 @@ async function renderLeaderDrill(leaderId) {
   const loader = loadingLine(t("team.loading_generic"));
   view.append(loader);
   try {
-    const target = await api(`/api/user/${encodeURIComponent(leaderId)}`).catch(() => null);
-    if (myToken !== routeToken) return;
-    // Fall back to enumerating leaders if the single-user endpoint isn't there.
-    const [{ leaders }, { users }] = await Promise.all([
+    // Fetch all three sources in parallel:
+    //   /api/hk/leaders — for the leader's display name (single source
+    //   with per-leader aggregates for the parent list). We DO NOT rely
+    //   on it for the KPI strip any more, because when the director
+    //   drilled in from a stale HK list the aggregated fields
+    //   (chanted_today, active_coords_today, assigned) rendered blank
+    //   or zero even when the coord rows below showed activity. The
+    //   root cause: two independent aggregation paths (one for the
+    //   HK leaders list, one for the coord rows) can diverge. We now
+    //   compute the KPI strip from the SAME coord rows shown below so
+    //   the totals always match.
+    //   /api/leader/coordinators — full coord list w/ per-coord stats.
+    //     For HK: returns ALL coords. For a leader: only their own.
+    //     Either way we filter by manager_user_id === leaderId.
+    //   /api/admin/users — HK-only fallback for the assign-coords picker
+    //     (unassigned coords + coords under other leaders). Skipped
+    //     for non-HK callers who can't see /api/admin/users anyway.
+    const [{ leaders }, { coordinators }, usersResult] = await Promise.all([
       api("/api/hk/leaders").catch(() => ({ leaders: [] })),
-      api("/api/admin/users").catch(() => ({ users: [] })),
+      api("/api/leader/coordinators").catch(() => ({ coordinators: [] })),
+      ME.role === "hk_leader"
+        ? api("/api/admin/users").catch(() => ({ users: [] }))
+        : Promise.resolve({ users: [] }),
     ]);
     if (myToken !== routeToken) return;
-    const leader = leaders.find(l => l.user_id === leaderId) || {};
+    const users = usersResult.users || [];
+    const leaderInfo = leaders.find(l => l.user_id === leaderId) || {};
     const leaderUser = users.find(u => u.id === leaderId);
-    const name = leader.name || leaderUser?.display_name || leaderUser?.username || t("team.leader_fallback");
+    const name = leaderInfo.name || leaderUser?.display_name || leaderUser?.username || t("team.leader_fallback");
     loader.remove();
     view.append(el("div", { class: "spread" },
       el("h2", { class: "section" }, `${name} · ${humanRole("njy_leader")}`),
       el("a", { class: "btn", href: backHref }, t("btn.back")),
     ));
-    // KPI strip for this leader
+
+    // Filter coordinators down to just this leader's — the field IS
+    // returned by /api/leader/coordinators (see handlers.js:774) so
+    // we don't need /api/admin/users at all for this filter.
+    const myCoordRows = coordinators.filter(c => c.manager_user_id === leaderId);
+
+    // KPI strip — computed from the same rows shown below. This is the
+    // fix for the "coord row counts blank on director drill-in" bug:
+    // when HK drills into a leader whose /api/hk/leaders aggregation
+    // returned zero (stale row / missing entry / mismatched user id),
+    // the KPI would render "0" for all fields while the coord cards
+    // underneath clearly showed real activity. Computing from the
+    // coord rows themselves keeps the KPI in lock-step with what the
+    // director actually sees.
+    const coordCount = myCoordRows.length;
+    const activeCoordsToday = myCoordRows.filter(c => (c.chanted_today || 0) > 0).length;
+    const totalPeople = myCoordRows.reduce((s, c) => s + (c.assigned || 0), 0);
+    const chantedToday = myCoordRows.reduce((s, c) => s + (c.chanted_today || 0), 0);
     const grid = el("div", { class: "tally" });
     grid.append(
-      el("div", { class: "cell" }, el("div", { class: "n" }, String(leader.coord_count || 0)), el("div", { class: "k" }, t("hd.coords_in_team"))),
-      el("div", { class: "cell" }, el("div", { class: "n" }, String(leader.active_coords_today || 0)), el("div", { class: "k" }, t("hd.coords_active_today"))),
-      el("div", { class: "cell" }, el("div", { class: "n" }, String(leader.assigned || 0)), el("div", { class: "k" }, t("hd.people"))),
-      el("div", { class: "cell" }, el("div", { class: "n" }, String(leader.chanted_today || 0)), el("div", { class: "k" }, t("hd.chanted_today"))),
+      el("div", { class: "cell" }, el("div", { class: "n" }, String(coordCount)), el("div", { class: "k" }, t("hd.coords_in_team"))),
+      el("div", { class: "cell" }, el("div", { class: "n" }, String(activeCoordsToday)), el("div", { class: "k" }, t("hd.coords_active_today"))),
+      el("div", { class: "cell" }, el("div", { class: "n" }, String(totalPeople)), el("div", { class: "k" }, t("hd.people"))),
+      el("div", { class: "cell" }, el("div", { class: "n" }, String(chantedToday)), el("div", { class: "k" }, t("hd.chanted_today"))),
     );
     view.append(grid);
 
-    // Assign button
+    // Assign button (HK only). The modal needs the full users list to
+    // show unassigned + other-leader coords, so we already fetched it
+    // above for HK callers.
     if (ME.role === "hk_leader") {
       const assignBtn = el("button", { class: "primary" }, t("btn.assign_coords"));
       assignBtn.addEventListener("click", () => openAssignCoordsModal(leaderId, name, users));
       view.append(el("p", { style: "margin:.6rem 0" }, assignBtn));
     }
 
-    // This leader's coords — fetch the per-leader coord list. The
-    // /api/leader/coordinators endpoint filters by the CURRENT user, so
-    // we filter client-side from all coordinators against manager_user_id.
-    const myCoords = users.filter(u => u.role === "njy_coordinator" && u.active && u.manager_user_id === leaderId);
     view.append(el("h3", { class: "section" }, t("hd.currently_assigned")));
-    if (!myCoords.length) {
+    if (!coordCount) {
       view.append(el("p", { class: "hint" }, t("msg.no_coords_leader_assigned")));
       return;
     }
-    // Enrich each with the same shape coordCard expects. Cheapest path:
-    // reuse /api/leader/coordinators (HK sees all) and filter.
-    try {
-      const { coordinators } = await api("/api/leader/coordinators");
-      if (myToken !== routeToken) return;
-      const wanted = new Set(myCoords.map(c => c.id));
-      const rows = coordinators.filter(c => wanted.has(c.user_id));
-      const ul = el("ul", { class: "list" });
-      for (const c of rows) ul.append(el("li", {}, coordCard(c)));
-      view.append(ul);
-    } catch (err) {
-      if (myToken !== routeToken) return;
-      view.append(el("p", { class: "error" }, err.message));
-    }
+    const ul = el("ul", { class: "list" });
+    for (const c of myCoordRows) ul.append(el("li", {}, coordCard(c)));
+    view.append(ul);
   } catch (err) {
     if (myToken !== routeToken) return;
     loader.remove();
@@ -2200,6 +2390,7 @@ function coordCard(c) {
   // CHANGE 5 — leader → coord + HK → coord full-mesh: WhatsApp pill next to Open.
   const coordBtns = el("div", { style: "display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;justify-content:flex-end" });
   if (c.phone) coordBtns.append(wame(c.phone, t("pill.wa")));
+  if (c.phone) coordBtns.append(callBtn(c.phone));
   coordBtns.append(el("a", { class: "btn", href: `#/user/${c.user_id}` }, t("btn.open")));
   // Edit + Delete — leader can act on their own coords; HK unrestricted.
   // Backend re-checks ownership, so it's safe to render the buttons for
@@ -2520,13 +2711,28 @@ function rollListManageable(roll, currentOwnerUserId) {
       }
     });
 
-    const wa = el("a", { class: "wa", href: r.wa_url, target: "_blank", rel: "noopener" }, t("btn.whatsapp"));
-    // Same auto-mark-contacted + undo toast as the coord's own roll —
-    // leader/HK drilling into a coord's roll is still contacting the
-    // same member, so the same status update applies. Server-side auth
-    // check in /api/roll/mark-contacted lets leader/hk act on any
-    // member in their scope (see handlers.js).
-    attachWaAutoMarkContacted(wa, r, rowBead);
+    // Contact-pill container — WA (or SMS + Invite-to-WA when confirmed
+    // not on WhatsApp), Call, Save contact, plus a small "Not on
+    // WhatsApp?" toggle. See rollList() for the shared shape. Leader/HK
+    // drilling in are still contacting the same member, so mark-contacted
+    // auto-fires on WA open (server-side auth check in
+    // /api/roll/mark-contacted lets leader/hk act on any member in scope).
+    const contactWrap = el("span", { class: "contact-pills", style: "display:inline-flex;gap:.35rem;flex-wrap:wrap;align-items:center" });
+    const rebuildContact = () => {
+      contactWrap.innerHTML = "";
+      if (r.wa_status === 0) {
+        contactWrap.append(smsBtn(r.phone, null));
+        contactWrap.append(inviteWaBtn(r.phone));
+      } else {
+        const wa = el("a", { class: "wa", href: r.wa_url, target: "_blank", rel: "noopener" }, t("btn.whatsapp"));
+        attachWaAutoMarkContacted(wa, r, rowBead);
+        contactWrap.append(wa);
+      }
+      contactWrap.append(callBtn(r.phone));
+      contactWrap.append(saveContactBtn(r.name, r.phone, r.sl_no, r.pincode));
+      contactWrap.append(markNonWaBtn(r, rebuildContact));
+    };
+    rebuildContact();
 
     const historyBtn = el("button", { class: "history-btn", title: t("title.chant_history") }, "📅");
     historyBtn.addEventListener("click", async () => {
@@ -2536,7 +2742,7 @@ function rollListManageable(roll, currentOwnerUserId) {
       li.append(strip);
     });
 
-    const li = el("li", {}, el("div", { class: "bead-wrap" }, rowBead), name, lifecycle, chant, wa, historyBtn);
+    const li = el("li", {}, el("div", { class: "bead-wrap" }, rowBead), name, lifecycle, chant, contactWrap, historyBtn);
     ul.append(li);
 
     if (canManage) {
@@ -3451,6 +3657,61 @@ async function renderMembers(view) {
     addSlot.append(buildAddPersonButton(addSlot, "leader"));
   }
 
+  // Sub-tab pill row: People / Coordinators / Leaders. Coord only sees
+  // People; leader sees People + Coordinators (their team); HK sees all
+  // three. Counts fill in as each tab loads its data (or 0 if unloaded).
+  const tabRow = el("div", {
+    class: "members-tabs",
+    role: "tablist",
+    style: "display:flex;gap:.4rem;flex-wrap:wrap;margin:.4rem 0 .7rem",
+  });
+  const peopleContent = el("div", { id: "members-tab-people" });
+  const coordsContent = el("div", { id: "members-tab-coords", hidden: true });
+  const leadersContent = el("div", { id: "members-tab-leaders", hidden: true });
+  const tabsAvail = ["people"];
+  if (["hk_leader", "njy_leader"].includes(ME.role)) tabsAvail.push("coords");
+  if (ME.role === "hk_leader") tabsAvail.push("leaders");
+  const labelKey = { people: "members.tab.people", coords: "members.tab.coords", leaders: "members.tab.leaders" };
+  const pillRefs = {};   // { people: pillEl, coords: ..., leaders: ... }
+  const contentByKey = { people: peopleContent, coords: coordsContent, leaders: leadersContent };
+  const setPill = (kind, count) => {
+    const pill = pillRefs[kind];
+    if (!pill) return;
+    pill.textContent = `${t(labelKey[kind])} (${count == null ? "…" : count})`;
+  };
+  const loadedTabs = new Set();
+  const activateTab = (kind) => {
+    for (const k of tabsAvail) {
+      const on = k === kind;
+      contentByKey[k].hidden = !on;
+      if (pillRefs[k]) pillRefs[k].classList.toggle("active", on);
+    }
+    if (kind === "coords" && !loadedTabs.has("coords")) {
+      loadedTabs.add("coords");
+      renderMembersCoordsTab(coordsContent, (n) => setPill("coords", n));
+    }
+    if (kind === "leaders" && !loadedTabs.has("leaders")) {
+      loadedTabs.add("leaders");
+      renderMembersLeadersTab(leadersContent, (n) => setPill("leaders", n));
+    }
+  };
+  for (const kind of tabsAvail) {
+    const pill = el("button", {
+      type: "button",
+      role: "tab",
+      class: "members-tab-pill" + (kind === "people" ? " active" : ""),
+      style: "padding:.4rem .85rem;border-radius:999px;border:1px solid var(--line);"
+        + "background:var(--surface);color:var(--ink);font-size:.85rem;cursor:pointer;font-weight:500",
+    }, `${t(labelKey[kind])} (…)`);
+    pill.addEventListener("click", () => activateTab(kind));
+    pillRefs[kind] = pill;
+    tabRow.append(pill);
+  }
+  view.append(tabRow);
+  view.append(peopleContent);
+  view.append(coordsContent);
+  view.append(leadersContent);
+
   // Search bar (client-side filter across all 3 sections).
   const searchInput = el("input", {
     type: "search", id: "members-search",
@@ -3458,7 +3719,7 @@ async function renderMembers(view) {
     autocomplete: "off", autocapitalize: "none", autocorrect: "off",
     style: "width:100%;padding:.55rem;border:1px solid var(--line);border-radius:6px;margin:.4rem 0 .7rem",
   });
-  view.append(searchInput);
+  peopleContent.append(searchInput);
 
   // Bucketize
   const byId = new Map(people.map(p => [p.id, p]));
@@ -3474,7 +3735,7 @@ async function renderMembers(view) {
   const selected = new Set();  // person ids checked in the unassigned bulk-assign UI
 
   const sectionsWrap = el("div", { id: "members-sections" });
-  view.append(sectionsWrap);
+  peopleContent.append(sectionsWrap);
 
   // Bulk-assign floating bar (leader + HK only, only for unassigned).
   const bulkBar = el("div", {
@@ -3506,7 +3767,7 @@ async function renderMembers(view) {
   const bulkMsg = el("span", { class: "hint" }, "");
   const autoFillMsg = el("span", { class: "hint", id: "members-autofill-msg" }, "");
   bulkBar.append(bulkCount, bulkSelect, autoFillBtn, bulkBtn, autoFillMsg, bulkMsg);
-  if (canBulkAssign) view.append(bulkBar);
+  if (canBulkAssign) peopleContent.append(bulkBar);
 
   const refreshBulkBar = () => {
     if (!canBulkAssign) return;
@@ -3817,6 +4078,248 @@ async function renderMembers(view) {
     clearTimeout(debounce);
     debounce = setTimeout(renderAll, 120);
   });
+
+  // People count = total across all sections rendered on this tab.
+  setPill("people", people.length);
+  // Warm the other tabs' counts too so pills don't sit at "…" forever.
+  if (tabsAvail.includes("coords")) setPill("coords", null);
+  if (tabsAvail.includes("leaders")) setPill("leaders", null);
+}
+
+// Coordinators sub-tab — a full table of every coord the caller can
+// see (HK: all; leader: only their team). Reuses /api/leader/coordinators
+// so we get per-coord stats (assigned = whole roll size) for free.
+async function renderMembersCoordsTab(container, setCount) {
+  container.innerHTML = "";
+  const loading = el("p", { class: "hint" }, t("msg.loading"));
+  container.append(loading);
+  let coordinators = [], users = [];
+  try {
+    const [coordsRes, usersRes] = await Promise.all([
+      api("/api/leader/coordinators").catch(() => ({ coordinators: [] })),
+      ME.role === "hk_leader"
+        ? api("/api/admin/users").catch(() => ({ users: [] }))
+        : Promise.resolve({ users: [] }),
+    ]);
+    coordinators = coordsRes.coordinators || [];
+    users = usersRes.users || [];
+  } catch (err) {
+    loading.remove();
+    container.append(el("p", { class: "error" }, err.message));
+    return;
+  }
+  loading.remove();
+  // Map leader user_id → display name so the Assigned Leader column
+  // renders a human name rather than an opaque id. For HK the users
+  // list carries every leader; for a njy_leader caller, all rows are
+  // under themselves so we can hand-fill with their own display name.
+  const leaderNameById = new Map();
+  for (const u of users) {
+    if (u.role === "njy_leader") leaderNameById.set(u.id, u.display_name || u.username);
+  }
+  if (ME.role === "njy_leader") leaderNameById.set(ME.id, ME.display_name || ME.username);
+
+  setCount(coordinators.length);
+  if (!coordinators.length) {
+    container.append(el("p", { class: "hint" }, t("msg.no_coords_leader")));
+    return;
+  }
+
+  // Search box
+  const searchInput = el("input", {
+    type: "search",
+    placeholder: t("members.search_ph"),
+    autocomplete: "off", autocapitalize: "none",
+    style: "width:100%;padding:.55rem;border:1px solid var(--line);border-radius:6px;margin:.2rem 0 .7rem",
+  });
+  container.append(searchInput);
+
+  const card = el("div", { class: "card", style: "margin-bottom:.8rem;padding:0;overflow:hidden" });
+  const wrap = el("div", { class: "members-table-wrap" });
+  const table = el("table", { class: "members-table" });
+  const thead = el("thead");
+  thead.append(el("tr", {},
+    el("th", { class: "name-cell" }, t("members.col.name")),
+    el("th", {}, t("members.col.username")),
+    el("th", { class: "phone-cell" }, t("members.col.phone")),
+    el("th", { class: "pin-cell" }, t("members.col.pincode")),
+    el("th", {}, t("members.col.assigned_leader")),
+    el("th", {}, t("members.col.team_size")),
+    el("th", { class: "actions-cell" }, ""),
+  ));
+  table.append(thead);
+  const tbody = el("tbody");
+  table.append(tbody);
+  wrap.append(table);
+  card.append(wrap);
+  container.append(card);
+
+  const filterRows = (q) => {
+    if (!q) return coordinators;
+    const lower = q.toLowerCase();
+    const digits = q.replace(/\D/g, "");
+    return coordinators.filter(c =>
+      (c.name || "").toLowerCase().includes(lower)
+      || (c.username || "").toLowerCase().includes(lower)
+      || (digits && (c.phone || "").replace(/\D/g, "").includes(digits)),
+    );
+  };
+  const repaint = () => {
+    const q = searchInput.value.trim();
+    const rows = filterRows(q);
+    tbody.innerHTML = "";
+    if (!rows.length) {
+      tbody.append(el("tr", { class: "empty-row" },
+        el("td", { colspan: 7 }, t("members.empty_section"))));
+      return;
+    }
+    for (const c of rows) {
+      const canManage = ME.role === "hk_leader"
+        || (ME.role === "njy_leader" && (!c.manager_user_id || c.manager_user_id === ME.id));
+      const tr = el("tr", {});
+      const actions = el("div", { style: "display:flex;gap:.25rem;flex-wrap:wrap;justify-content:flex-end" });
+      if (c.phone) {
+        const waDigits = String(c.phone).replace(/[^\d]/g, "");
+        if (waDigits) {
+          actions.append(el("a", {
+            class: "wa-btn",
+            href: `https://api.whatsapp.com/send/?phone=${waDigits}`,
+            target: "_blank", rel: "noopener",
+            title: `WhatsApp: ${c.phone}`,
+          }, "💬"));
+        }
+        actions.append(callBtn(c.phone));
+      }
+      actions.append(el("a", { class: "btn ghost", href: `#/user/${c.user_id}` }, t("btn.open")));
+      if (canManage) {
+        const editBtn = el("button", { class: "mini-btn", type: "button" }, t("team.edit_coord_btn"));
+        editBtn.addEventListener("click", () => openEditCoordModal(c));
+        actions.append(editBtn);
+        const delBtn = el("button", { class: "danger", type: "button" }, t("team.delete_coord_btn"));
+        delBtn.addEventListener("click", () => openDeleteCoordConfirm(c));
+        actions.append(delBtn);
+      }
+      tr.append(
+        el("td", { class: "name-cell" }, c.name || "—"),
+        el("td", {}, c.username || "—"),
+        el("td", { class: "phone-cell" }, c.phone || "—"),
+        el("td", { class: "pin-cell" }, c.pincode || "—"),
+        el("td", {}, (c.manager_user_id && leaderNameById.get(c.manager_user_id)) || "—"),
+        el("td", {}, String(c.assigned || 0)),
+        el("td", { class: "actions-cell" }, actions),
+      );
+      tbody.append(tr);
+    }
+  };
+  let debounce = null;
+  searchInput.addEventListener("input", () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(repaint, 120);
+  });
+  repaint();
+}
+
+// Leaders sub-tab — HK-only listing of every NJY Leader with their
+// coord + people totals. Uses /api/hk/leaders (already aggregated).
+async function renderMembersLeadersTab(container, setCount) {
+  container.innerHTML = "";
+  const loading = el("p", { class: "hint" }, t("msg.loading"));
+  container.append(loading);
+  let leaders = [];
+  try {
+    const res = await api("/api/hk/leaders");
+    leaders = res.leaders || [];
+  } catch (err) {
+    loading.remove();
+    container.append(el("p", { class: "error" }, err.message));
+    return;
+  }
+  loading.remove();
+  setCount(leaders.length);
+  if (!leaders.length) {
+    container.append(el("p", { class: "hint" }, t("msg.no_coords_hk")));
+    return;
+  }
+
+  const searchInput = el("input", {
+    type: "search",
+    placeholder: t("members.search_ph"),
+    autocomplete: "off", autocapitalize: "none",
+    style: "width:100%;padding:.55rem;border:1px solid var(--line);border-radius:6px;margin:.2rem 0 .7rem",
+  });
+  container.append(searchInput);
+
+  const card = el("div", { class: "card", style: "margin-bottom:.8rem;padding:0;overflow:hidden" });
+  const wrap = el("div", { class: "members-table-wrap" });
+  const table = el("table", { class: "members-table" });
+  const thead = el("thead");
+  thead.append(el("tr", {},
+    el("th", { class: "name-cell" }, t("members.col.name")),
+    el("th", {}, t("members.col.username")),
+    el("th", { class: "phone-cell" }, t("members.col.phone")),
+    el("th", {}, t("members.col.coord_count")),
+    el("th", {}, t("members.col.total_people")),
+    el("th", { class: "actions-cell" }, ""),
+  ));
+  table.append(thead);
+  const tbody = el("tbody");
+  table.append(tbody);
+  wrap.append(table);
+  card.append(wrap);
+  container.append(card);
+
+  const filterRows = (q) => {
+    if (!q) return leaders;
+    const lower = q.toLowerCase();
+    const digits = q.replace(/\D/g, "");
+    return leaders.filter(l =>
+      (l.name || "").toLowerCase().includes(lower)
+      || (l.username || "").toLowerCase().includes(lower)
+      || (digits && (l.phone || "").replace(/\D/g, "").includes(digits)),
+    );
+  };
+  const repaint = () => {
+    const q = searchInput.value.trim();
+    const rows = filterRows(q);
+    tbody.innerHTML = "";
+    if (!rows.length) {
+      tbody.append(el("tr", { class: "empty-row" },
+        el("td", { colspan: 6 }, t("members.empty_section"))));
+      return;
+    }
+    for (const l of rows) {
+      const actions = el("div", { style: "display:flex;gap:.25rem;flex-wrap:wrap;justify-content:flex-end" });
+      if (l.phone) {
+        const waDigits = String(l.phone).replace(/[^\d]/g, "");
+        if (waDigits) {
+          actions.append(el("a", {
+            class: "wa-btn",
+            href: `https://api.whatsapp.com/send/?phone=${waDigits}`,
+            target: "_blank", rel: "noopener",
+            title: `WhatsApp: ${l.phone}`,
+          }, "💬"));
+        }
+        actions.append(callBtn(l.phone));
+      }
+      actions.append(el("a", { class: "btn ghost", href: `#/leader/${l.user_id}` }, t("btn.open")));
+      const tr = el("tr", {});
+      tr.append(
+        el("td", { class: "name-cell" }, l.name || "—"),
+        el("td", {}, l.username || "—"),
+        el("td", { class: "phone-cell" }, l.phone || "—"),
+        el("td", {}, String(l.coord_count || 0)),
+        el("td", {}, String(l.assigned || 0)),
+        el("td", { class: "actions-cell" }, actions),
+      );
+      tbody.append(tr);
+    }
+  };
+  let debounce = null;
+  searchInput.addEventListener("input", () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(repaint, 120);
+  });
+  repaint();
 }
 
 // ------------------ Add Coordinator / Add Leader inline form -------

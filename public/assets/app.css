@@ -189,6 +189,13 @@ button { font: inherit; cursor: pointer; }
 }
 .pill.on { background: var(--tint-followed); color: var(--mark-followed); border-color: var(--mark-followed); }
 
+/* Members tab sub-pills — People / Coordinators / Leaders. */
+.members-tab-pill.active {
+  background: var(--peacock-deep, #0f766e);
+  color: #fff;
+  border-color: var(--peacock-deep, #0f766e);
+}
+
 /* table-like list */
 .list { list-style: none; padding: 0; margin: 0; }
 .list li {
