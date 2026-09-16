@@ -2658,6 +2658,14 @@ function coordCard(c) {
   const pctConsistent = Math.min(100, Math.round(100 * consistent / denom));
   const midToday = pctToday >= 60 ? 0 : (pctToday >= 30 ? 1 : 2);
   const midConsistent = pctConsistent >= 60 ? 0 : (pctConsistent >= 30 ? 1 : 2);
+  // Whole-roll chants today — the summary Director actually cares about
+  // when spotting which coord had activity. Independent of daily-commit
+  // status. Uses `chanted_today` (total) / `assigned` (whole roll size).
+  const rollTotal = c.assigned || 0;
+  const rollDenom = Math.max(1, rollTotal);
+  const rollChanted = c.chanted_today || 0;
+  const pctRoll = Math.min(100, Math.round(100 * rollChanted / rollDenom));
+  const midRoll = pctRoll >= 60 ? 0 : (pctRoll >= 30 ? 1 : 2);
   // CHANGE 5 — leader → coord + HK → coord full-mesh: WhatsApp pill next to Open.
   const coordBtns = el("div", { style: "display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;justify-content:flex-end" });
   if (c.phone) coordBtns.append(wame(c.phone, t("pill.wa")));
@@ -2687,7 +2695,14 @@ function coordCard(c) {
       el("div", { class: "hint", style: "margin-top:.2rem" },
         `${dailyTotal}${t("team.daily_committed_suffix")}${c.assigned || 0}${t("team.whole_roll_suffix")}`,
       ),
+      // Whole-roll chants today — first + primary so Director sees who's
+      // actually active regardless of daily-commit status.
       el("div", { class: "progress-line", style: "margin-top:.55rem" },
+        el("span", {}, t("team.chanted_today_label")),
+        el("span", { class: "fraction" }, `${rollChanted}${t("team.of_infix")}${rollTotal}`),
+      ),
+      el("div", { class: "pbar", "data-mid": String(midRoll), style: `--pct:${pctRoll}%` }),
+      el("div", { class: "progress-line", style: "margin-top:.4rem" },
         el("span", { title: t("team.skj_today_title") }, t("team.skj_today_label")),
         el("span", { class: "fraction" }, `${daily_chanted}${t("team.of_infix")}${dailyTotal}`),
       ),
