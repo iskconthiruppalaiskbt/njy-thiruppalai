@@ -2746,6 +2746,15 @@ function openEditCoordModal(coord) {
     type: "text", autocomplete: "new-password",
     placeholder: t("team.edit_password_placeholder"),
   });
+  // Gender radios — prefilled from coord.gender if the API returned it.
+  const genderF = el("input", { type: "radio", name: "gender", value: "F" });
+  const genderM = el("input", { type: "radio", name: "gender", value: "M" });
+  if (coord.gender === "F") genderF.checked = true;
+  if (coord.gender === "M") genderM.checked = true;
+  const genderWrap = el("div", { style: "display:flex;gap:1rem;align-items:center" },
+    el("label", { style: "display:flex;gap:.35rem;align-items:center" }, genderF, " " + t("field.gender_f")),
+    el("label", { style: "display:flex;gap:.35rem;align-items:center" }, genderM, " " + t("field.gender_m")),
+  );
   const msg = el("span", { class: "hint", style: "margin-left:.5rem" }, "");
   const saveBtn = el("button", { class: "primary", type: "submit" }, t("btn.save"));
   const cancelBtn = el("button", { class: "ghost", type: "button" }, t("btn.cancel"));
@@ -2759,6 +2768,7 @@ function openEditCoordModal(coord) {
     el("div", {}, el("label", {}, t("field.pincode")), pincodeI,
       el("p", { class: "hint", style: "margin:.15rem 0 .3rem;font-size:.78rem;color:var(--ink-2)" },
         t("field.pincode_hint"))),
+    el("div", {}, el("label", {}, t("field.gender")), genderWrap),
     el("div", {}, el("label", {}, t("team.edit_password_label")), passwordI,
       el("p", { class: "hint", style: "margin:.15rem 0 .3rem;font-size:.78rem;color:var(--ink-2)" },
         t("team.edit_password_hint"))),
@@ -2806,7 +2816,8 @@ function openEditCoordModal(coord) {
     if (!un) { msg.textContent = t("profile.edit_username_required"); return; }
     if (pc && !/^\d{6}$/.test(pc)) { msg.textContent = t("field.pincode_invalid"); return; }
     if (pw && pw.length < 6) { msg.textContent = t("team.edit_password_too_short"); return; }
-    const body = { display_name: dn, username: un, phone: ph, pincode: pc || null };
+    const g = genderF.checked ? "F" : (genderM.checked ? "M" : null);
+    const body = { display_name: dn, username: un, phone: ph, pincode: pc || null, gender: g };
     if (pw) body.password = pw;
     saveBtn.disabled = true;
     try {
