@@ -2227,7 +2227,13 @@ function rollList(roll, editable) {
     const rebuildContact = () => {
       contactWrap.innerHTML = "";
       if (r.wa_status === 0) {
-        contactWrap.append(smsBtn(r.phone, null));
+        // Pre-fill SMS with the same message body the WhatsApp button
+        // would send, so the coord doesn't have to re-type it.
+        let smsBody = null;
+        try {
+          if (r.wa_url) smsBody = new URL(r.wa_url).searchParams.get("text");
+        } catch {}
+        contactWrap.append(smsBtn(r.phone, smsBody));
         contactWrap.append(inviteWaBtn(r.phone));
       } else {
         const wa = el("a", { class: "wa", href: r.wa_url, target: "_blank", rel: "noopener" }, t("btn.whatsapp"));
@@ -2926,7 +2932,13 @@ function rollListManageable(roll, currentOwnerUserId) {
     const rebuildContact = () => {
       contactWrap.innerHTML = "";
       if (r.wa_status === 0) {
-        contactWrap.append(smsBtn(r.phone, null));
+        // Pre-fill SMS with the same message body the WhatsApp button
+        // would send, so the coord doesn't have to re-type it.
+        let smsBody = null;
+        try {
+          if (r.wa_url) smsBody = new URL(r.wa_url).searchParams.get("text");
+        } catch {}
+        contactWrap.append(smsBtn(r.phone, smsBody));
         contactWrap.append(inviteWaBtn(r.phone));
       } else {
         const wa = el("a", { class: "wa", href: r.wa_url, target: "_blank", rel: "noopener" }, t("btn.whatsapp"));
