@@ -1067,7 +1067,10 @@ function callBtn(phone) {
 function saveContactBtn(rawName, phone, sl_no, pincode) {
   const digits = String(phone || "").replace(/[^\d]/g, "");
   if (!digits) return el("span", { hidden: true });
-  const fn = honorificAdjust(rawName || "").trim() || String(rawName || "").trim() || "NJY Member";
+  // Append " NJY" suffix so all app-saved contacts group together in the
+  // coord's phonebook — searchable/filterable as one set.
+  const baseName = honorificAdjust(rawName || "").trim() || String(rawName || "").trim() || "Member";
+  const fn = `${baseName} NJY`;
   const btn = el("button", {
     type: "button",
     class: "btn",
