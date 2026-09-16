@@ -582,18 +582,64 @@ textarea { min-height: 4rem; resize: vertical; }
   color: var(--muted); font-weight: 400;
 }
 .roll .bead-wrap { position: relative; }
+/* Chant? — the PRIMARY row action. Loud, bold, high-focus. Everything
+ * else on the row is intentionally muted so this button dominates. */
 .chant-tag {
-  font-family: var(--font-mono); font-size: .72rem; color: var(--muted);
-  padding: 0 .3rem;
+  font-family: var(--font-body);
+  font-size: .95rem;
+  font-weight: 700;
+  color: white;
+  background: var(--peacock-deep, #0E4F52);
+  border: 1px solid var(--peacock-deep, #0E4F52);
+  padding: .45rem 1rem;
+  border-radius: var(--radius-s, 6px);
+  cursor: pointer;
+  min-width: 5rem;
+  text-align: center;
+  transition: transform .1s ease, box-shadow .1s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,.08);
 }
-.chant-tag.on { color: var(--mark-responded); font-weight: 500; }
+.chant-tag:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+.chant-tag.on {
+  background: var(--mark-chanted, #d97706);
+  border-color: var(--mark-chanted, #d97706);
+  color: white;
+}
 
+/* Contact pills — MUTED. The Chant? button is the star. */
 .roll .wa {
-  background: var(--tint-followed); border: 1px solid var(--mark-followed);
-  color: var(--mark-followed); padding: .35rem .6rem;
-  border-radius: var(--radius-s); font-size: .8rem; text-decoration: none;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  padding: .2rem .45rem;
+  border-radius: var(--radius-s);
+  font-size: .72rem;
+  text-decoration: none;
+  font-weight: 400;
 }
-.roll .wa:hover { background: var(--mark-followed); color: white; }
+.roll .wa:hover {
+  border-color: var(--mark-followed);
+  color: var(--mark-followed);
+  background: var(--tint-followed);
+}
+/* Muted styling for the other contact buttons in the roll row (Call,
+ * Save, SMS, Invite-to-WA). Overrides the loud green/blue backgrounds
+ * they carry when used elsewhere in the app. */
+.roll .contact-pills > a,
+.roll .contact-pills > button {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: 1px solid var(--line) !important;
+  padding: .2rem .45rem !important;
+  font-size: .72rem !important;
+  font-weight: 400 !important;
+  box-shadow: none !important;
+}
+.roll .contact-pills > a:hover,
+.roll .contact-pills > button:hover {
+  background: var(--surface-sunk, #f5efe3) !important;
+  color: var(--ink) !important;
+}
 
 /* -------------------------------------------------- garland bead */
 /* 5-color model (server-derived on each render):
