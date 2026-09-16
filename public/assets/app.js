@@ -795,6 +795,9 @@ async function renderCoordRoll(view) {
       // Download CSV — client-side (data already fetched into `roll`),
       // no server round-trip. Filename embeds the coord's own name.
       secondaryRow.append(csvDownloadButton(roll, ME.display_name || "me", "my-sangha"));
+      // Save-all-contacts — bundles every roll member into one .vcf so
+      // the coord's phone imports them all at once.
+      secondaryRow.append(saveAllContactsBtn(roll, ME.display_name || "me"));
       if (secondaryRow.children.length) view.append(secondaryRow);
     }
     // Care-moment surfacing — coords only, shown right below the tally.
@@ -1102,6 +1105,60 @@ function saveContactBtn(rawName, phone, sl_no, pincode) {
     const a = document.createElement("a");
     a.href = url;
     a.download = `${slugify(fn)}.vcf`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  });
+  return btn;
+}
+
+// Build a single vCard block for one person. Returns the multiline
+// string (no trailing newline). Used both by the per-row button and
+// the bulk "Save all contacts" download.
+function vcardFor(rawName, phone, sl_no, pincode) {
+  const digits = String(phone || "").replace(/[^\d]/g, "");
+  if (!digits) return null;
+  const baseName = honorificAdjust(rawName || "").trim() || String(rawName || "").trim() || "Member";
+  const fn = `${baseName} NJY`;
+  const tel = digits.length === 10 ? `+91${digits}` : `+${digits}`;
+  const noteBits = ["NJY Member"];
+  if (sl_no != null && sl_no !== "") noteBits.push(`SL ${sl_no}`);
+  if (pincode) noteBits.push(String(pincode));
+  return [
+    "BEGIN:VCARD",
+    "VERSION:3.0",
+    `FN:${vcardEscape(fn)}`,
+    `N:${vcardEscape(fn)};;;;`,
+    `TEL;TYPE=CELL:${tel}`,
+    `NOTE:${vcardEscape(noteBits.join(" · "))}`,
+    "END:VCARD",
+  ].join("\r\n");
+}
+
+// Bulk button: downloads a single .vcf carrying every roll member's
+// contact card at once. Phones import all of them in one prompt.
+function saveAllContactsBtn(roll, coordName) {
+  const btn = el("button", {
+    type: "button",
+    class: "btn",
+    style: "padding:.3rem .7rem;border-radius:6px;font-size:.85rem;font-weight:500;background:#0ea5e9;color:#fff;border:none;cursor:pointer",
+  }, t("btn.save_all_contacts"));
+  btn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    const blocks = [];
+    for (const r of (roll || [])) {
+      const v = vcardFor(r.name, r.phone, r.sl_no, r.pincode);
+      if (v) blocks.push(v);
+    }
+    if (!blocks.length) { alert(t("msg.no_contacts")); return; }
+    const vcf = blocks.join("\r\n") + "\r\n";
+    const blob = new Blob([vcf], { type: "text/vcard;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const date = new Date().toISOString().slice(0, 10);
+    a.download = `${slugify(coordName || "my-sangha")}-njy-members-${date}.vcf`;
     document.body.append(a);
     a.click();
     a.remove();
