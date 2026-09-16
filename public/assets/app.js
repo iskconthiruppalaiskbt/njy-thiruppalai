@@ -346,7 +346,21 @@ async function showApp() {
   renderRoute();
   refreshPointsChip();
   refreshLbSide();
+  refreshDupPendingCount();
   maybeShowOnboardingTour();
+}
+
+// Poll the pending-duplicate-count endpoint once on boot and after every
+// resolve, so the HK nav badge and the leader Team-page info line stay
+// current without a full-page reload. Coord role gets it too but doesn't
+// render a badge (their submission returns the same count).
+async function refreshDupPendingCount() {
+  try {
+    if (!["hk_leader", "njy_leader", "njy_coordinator"].includes(ME.role)) return;
+    const { count } = await api("/api/duplicate-requests/pending-count");
+    window._njyPendingDupCount = count || 0;
+    if (ME.role === "hk_leader") renderNav();
+  } catch { /* silent */ }
 }
 
 // Show a 5-slide onboarding tour to a coordinator EVERY sign-in until
@@ -631,6 +645,8 @@ function renderNav() {
     { href: "#/bv",        label: t("nav.bv"),       when: () => can("bv_structure_editor") && BV_ROLES.includes(ME.role) },
     { href: "#/janmashtami", label: t("nav.janmashtami"), when: () => can("janmashtami_view_page") && ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
     { href: "#/members",     label: t("nav.members"),     when: () => can("members_tab") && ["hk_leader","njy_leader","njy_coordinator"].includes(ME.role) },
+    { href: "#/duplicates",  label: t("dup.nav_link"),    when: () => ME.role === "hk_leader",
+      badge: () => window._njyPendingDupCount || 0 },
     { href: "#/profile",     label: t("nav.profile"), when: () => ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
     { href: "#/settings",  label: t("nav.settings"), when: () => ["njy_coordinator","njy_leader","hk_leader","servant_leader","manjari_servant_leader"].includes(ME.role) },
     { href: "#/admin",     label: t("nav.admin"),    when: () => can("feature_admin") },
@@ -639,6 +655,19 @@ function renderNav() {
   for (const it of items) {
     if (!it.when()) continue;
     const a = el("a", { href: it.href, class: (here === it.href ? "active" : "") }, it.label);
+    // Small count badge (red pill) rendered inside the nav item when
+    // the entry defines a badge() reader returning a positive number.
+    if (typeof it.badge === "function") {
+      const n = it.badge();
+      if (n && n > 0) {
+        a.append(el("span", {
+          style: "display:inline-block;margin-left:.35rem;padding:0 .4rem;"
+               + "background:#c0392b;color:#fff;border-radius:999px;"
+               + "font-size:.72rem;font-weight:700;line-height:1.3;"
+               + "vertical-align:middle",
+        }, String(n)));
+      }
+    }
     nav.append(a);
   }
   if (deferredInstall) {
@@ -698,6 +727,7 @@ function renderRoute() {
     "points-rules": () => renderPointsRules(view),
     "member":   () => renderMemberDetails(arg),
     "members":  () => renderMembers(view),
+    "duplicates": () => renderDuplicateQueue(view),
     "group-report": () => renderGroupReport(arg),
   };
   const fn = routes[path] || renderCoordRoll;
@@ -712,7 +742,12 @@ function renderRoute() {
 async function renderCoordRoll(view) {
   const myToken = routeToken;
   try {
-    const { roll, tally } = await api("/api/roll");
+    // Refresh the pending-duplicate cache in parallel with the roll fetch
+    // so the pills paint on first render.
+    const [{ roll, tally }] = await Promise.all([
+      api("/api/roll"),
+      refreshPendingDupCache(),
+    ]);
     if (myToken !== routeToken) return;
     // Coord banner: show who their NJY Leader is (or a nudge if unassigned).
     // CHANGE 5 — bold the leader's name (label stays regular weight),
@@ -2002,6 +2037,138 @@ function showUndoToast(personName, onUndo) {
   }, 5000);
 }
 
+// -------------------------------- duplicate-request client helpers ---
+// Client-side "does this member have a pending duplicate flag?" cache.
+// Populated by renderCoordRoll / renderMemberDetails via a lightweight
+// GET /api/duplicate-requests?status=pending call. Keys are person ids;
+// values are truthy request rows. Cleared on every renderRoute() via
+// the routeToken bump — the cache re-populates on the next page.
+window._njyPendingDupIds = window._njyPendingDupIds || new Set();
+
+function hasPendingDupFlag(personId) {
+  try { return window._njyPendingDupIds.has(personId); }
+  catch { return false; }
+}
+
+// Small pill rendered on any member row that currently has a pending
+// duplicate_request. Read-only — the queue is where a Director acts.
+function pendingDupPill() {
+  return el("span", {
+    class: "hint",
+    style: "background:#fff4d6;border:1px solid #e6c56a;color:#7a5b00;"
+         + "padding:.15rem .45rem;border-radius:6px;font-size:.72rem;"
+         + "white-space:nowrap",
+  }, t("dup.pending_pill"));
+}
+
+// "Mark as Duplicate" button — the primary entry point on any row that
+// belongs to the caller (or that the caller can flag: leader/HK).
+// Opens the modal below. Hidden when a pending flag already exists on
+// this row (the pill takes its place).
+function markDuplicateBtn(person, onSubmitted) {
+  const btn = el("button", {
+    class: "mini-btn",
+    type: "button",
+    title: t("btn.mark_duplicate"),
+    style: "background:#fff8e6;border:1px solid #f0d68a;color:#7a5b00",
+  }, t("btn.mark_duplicate"));
+  btn.addEventListener("click", () => openDuplicateModal(person, onSubmitted));
+  return btn;
+}
+
+// Modal — coord types the OTHER row's SL + an optional note and submits.
+// On success we cache the pending flag id and invoke onSubmitted() so
+// the caller can swap the button for the pill without a full re-render.
+function openDuplicateModal(person, onSubmitted) {
+  const backdrop = el("div", {
+    style: "position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;"
+         + "display:flex;align-items:flex-start;justify-content:center;"
+         + "padding:2rem 1rem;overflow-y:auto",
+  });
+  const box = el("div", {
+    style: "background:var(--surface);border:1px solid var(--line);"
+         + "border-radius:var(--radius);max-width:440px;width:100%;"
+         + "padding:1rem 1.2rem;box-shadow:var(--shadow)",
+  });
+  const closeBtn = el("button", { class: "ghost", type: "button" }, "✕");
+  box.append(el("div", { class: "spread" },
+    el("h3", { class: "section", style: "margin:0" }, t("dup.form_title")),
+    closeBtn,
+  ));
+  const nameLine = el("p", { class: "hint", style: "margin:.3rem 0 .6rem" },
+    person.name || person.legal_name || "",
+    person.sl_no ? " · SL " + person.sl_no : "",
+  );
+  const slInput = el("input", {
+    id: "dup-of-sl",
+    placeholder: t("dup.of_sl_placeholder"),
+    autofocus: true,
+    style: "width:100%;padding:.5rem;border:1px solid var(--line);border-radius:6px",
+  });
+  const noteInput = el("textarea", {
+    id: "dup-note",
+    rows: 3,
+    placeholder: t("dup.note_placeholder"),
+    style: "width:100%;padding:.5rem;border:1px solid var(--line);border-radius:6px",
+  });
+  const msg = el("span", { class: "hint", style: "margin-left:.5rem" });
+  const submit = el("button", { class: "primary", type: "button" }, t("dup.submit_btn"));
+  const cancel = el("button", { class: "btn", type: "button", style: "margin-left:.4rem" }, t("dup.cancel_btn"));
+  box.append(
+    nameLine,
+    formField(t("dup.of_sl_label"), slInput),
+    formField(t("dup.note_label"), noteInput),
+    el("p", { style: "margin-top:.7rem;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap" },
+      submit, cancel, msg),
+  );
+
+  const close = () => backdrop.remove();
+  closeBtn.addEventListener("click", close);
+  cancel.addEventListener("click", close);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
+
+  submit.addEventListener("click", async () => {
+    const sl = slInput.value.trim();
+    if (!sl) { msg.textContent = t("err.duplicate_of_sl_required"); return; }
+    submit.disabled = true;
+    msg.textContent = t("msg.loading");
+    try {
+      const r = await api("/api/duplicate-requests", {
+        method: "POST",
+        body: JSON.stringify({
+          flagged_person_id: person.id,
+          duplicate_of_sl: sl,
+          note: noteInput.value.trim() || null,
+        }),
+      });
+      try { window._njyPendingDupIds.add(person.id); } catch {}
+      msg.textContent = t("dup.submitted_pending");
+      refreshDupPendingCount();
+      if (typeof onSubmitted === "function") onSubmitted(r.request);
+      setTimeout(close, 700);
+    } catch (err) {
+      msg.textContent = err.message;
+      submit.disabled = false;
+    }
+  });
+  backdrop.append(box);
+  document.body.append(backdrop);
+}
+
+// One-shot fetch that populates the pending-flag cache for the current
+// page. Safe to call from any render function; failures are swallowed
+// because the pill is nice-to-have, not required for correctness.
+async function refreshPendingDupCache() {
+  try {
+    // Only roles that can see the queue can call the endpoint. Coord
+    // gets their own submissions back; leader/HK get their scope. All
+    // three shapes are fine for populating a "pending" id set.
+    if (!["njy_coordinator", "njy_leader", "hk_leader"].includes(ME.role)) return;
+    const { requests } = await api("/api/duplicate-requests?status=pending");
+    window._njyPendingDupIds = new Set((requests || []).map(r => r.flagged_person_id));
+  } catch { /* silent */ }
+}
+
 function rollList(roll, editable) {
   const ul = el("ul", { class: "roll" });
   roll.forEach((r) => {
@@ -2082,7 +2249,21 @@ function rollList(roll, editable) {
       li.append(strip);
     });
 
-    li.append(el("div", { class: "bead-wrap" }, rowBead), name, lifecycle, chant, contactWrap, historyBtn);
+    // Duplicate-request slot: shows either the pending pill (if this row
+    // already has an open flag) or the "Mark as Duplicate" action. Hidden
+    // in the non-editable garland/drill views to keep those read-only.
+    const dupSlot = el("span", { class: "dup-slot", style: "display:inline-flex;gap:.35rem;align-items:center" });
+    const paintDupSlot = () => {
+      dupSlot.innerHTML = "";
+      if (hasPendingDupFlag(r.id)) {
+        dupSlot.append(pendingDupPill());
+      } else if (editable && ["njy_coordinator", "njy_leader", "hk_leader"].includes(ME.role)) {
+        dupSlot.append(markDuplicateBtn(r, () => paintDupSlot()));
+      }
+    };
+    paintDupSlot();
+
+    li.append(el("div", { class: "bead-wrap" }, rowBead), name, lifecycle, chant, contactWrap, historyBtn, dupSlot);
     ul.appendChild(li);
   });
   return ul;
@@ -2104,6 +2285,30 @@ async function renderLeaderDashboard(view) {
   }
   // CHANGE 3 — leader gets Broadcast + WA Group over their coords.
   view.append(broadcastAndWaGroupNav());
+  // Duplicate-request info line — read-only for leader; the Director
+  // owns the review action. Rendered as a small notice card so it
+  // stands out from the coord list without becoming a full CTA.
+  if (ME.role === "njy_leader") {
+    const dupNotice = el("p", { class: "hint",
+      style: "background:#fff8e6;border:1px solid #f0d68a;color:#7a5b00;"
+           + "padding:.4rem .7rem;border-radius:6px;margin:.4rem 0;"
+           + "display:none;gap:.4rem;flex-wrap:wrap;align-items:center" });
+    view.append(dupNotice);
+    (async () => {
+      try {
+        const { count } = await api("/api/duplicate-requests/pending-count");
+        if (myToken !== routeToken) return;
+        if (count > 0) {
+          dupNotice.style.display = "flex";
+          dupNotice.append(
+            el("span", {}, t("dup.leader_info_prefix")),
+            el("strong", { style: "font-weight:700" }, String(count)),
+            el("span", {}, t("dup.leader_info_pending")),
+          );
+        }
+      } catch { /* silent */ }
+    })();
+  }
   const loader = loadingLine(t("team.loading_coords"));
   view.append(loader);
   try {
@@ -4634,7 +4839,10 @@ async function renderMemberDetails(personId) {
   view.append(el("h2", { class: "section" }, t("hd.member_details")));
   if (!personId) return view.append(el("p", { class: "hint" }, t("msg.open_via_row")));
   try {
-    const { person, assigned_coord } = await api(`/api/member/${encodeURIComponent(personId)}`);
+    const [{ person, assigned_coord }] = await Promise.all([
+      api(`/api/member/${encodeURIComponent(personId)}`),
+      refreshPendingDupCache(),
+    ]);
     if (myToken !== routeToken) return;
 
     // Header banner: prominent "Assigned to: <coord name>" line plus a
@@ -4744,6 +4952,26 @@ async function renderMemberDetails(personId) {
       }
     });
 
+    // Duplicate-request control. Visible to coord who owns this member,
+    // plus leader/HK (server enforces the ownership rule regardless).
+    // Renders the pending pill if a flag is already open on this row.
+    if (["njy_coordinator", "njy_leader", "hk_leader"].includes(ME.role)) {
+      const dupCard = el("div", { class: "card",
+        style: "display:flex;gap:.5rem;align-items:center;padding:.6rem .9rem;margin-bottom:.7rem;flex-wrap:wrap" });
+      const paintDup = () => {
+        dupCard.innerHTML = "";
+        dupCard.append(el("span", { style: "font-weight:600" }, t("dup.form_title") + ": "));
+        if (hasPendingDupFlag(personId)) {
+          dupCard.append(pendingDupPill());
+        } else {
+          const p = { id: person.id, name: person.legal_name, sl_no: person.sl_no };
+          dupCard.append(markDuplicateBtn(p, () => paintDup()));
+        }
+      };
+      paintDup();
+      view.append(dupCard);
+    }
+
     const card = el("form", { class: "card", method: "post", action: "javascript:void(0)" });
     const F = (id, label, val, extra = {}) =>
       formField(label, el("input", { id, value: val || "", ...extra }));
@@ -4808,6 +5036,128 @@ async function renderMemberDetails(personId) {
   } catch (err) {
     view.append(el("p", { class: "error" }, err.message));
   }
+}
+
+// -------------------------------------------- duplicate-request queue ---
+// HK-only review page. Lists every pending duplicate_request with the
+// two rows side-by-side, the flagging coord, the note, and Merge / Reject
+// actions. Merge requires picking the winner via radio buttons.
+async function renderDuplicateQueue(view) {
+  const myToken = routeToken;  // BUG 1+2
+  view.append(el("h2", { class: "section" }, t("dup.queue_title")));
+  if (ME.role !== "hk_leader") {
+    view.append(el("p", { class: "error" }, t("err.http_403")));
+    return;
+  }
+  const loader = loadingLine(t("msg.loading"));
+  view.append(loader);
+  try {
+    const { requests } = await api("/api/duplicate-requests?status=pending");
+    if (myToken !== routeToken) return;
+    loader.remove();
+    if (!requests.length) {
+      view.append(el("p", { class: "hint" }, t("dup.pending_none")));
+      return;
+    }
+    const ul = el("ul", { class: "list", style: "gap:.6rem" });
+    for (const rq of requests) {
+      ul.append(el("li", {}, renderDupRequestCard(rq, () => renderRoute())));
+    }
+    view.append(ul);
+  } catch (err) {
+    loader.remove();
+    view.append(el("p", { class: "error" }, err.message));
+  }
+}
+
+function renderDupRequestCard(rq, onResolved) {
+  const wrap = el("div", { style: "width:100%;display:flex;flex-direction:column;gap:.5rem" });
+  // Header — who flagged, when, note
+  const header = el("div", { class: "hint",
+    style: "display:flex;gap:.5rem;flex-wrap:wrap;font-size:.8rem" });
+  header.append(el("span", {}, t("dup.flagged_by") + ": "),
+    el("strong", { style: "font-weight:600;color:var(--ink-2)" },
+      rq.requested_by_name || rq.requested_by || "?"),
+    el("span", {}, " · "),
+    el("span", {}, (rq.created_at || "").slice(0, 10)),
+  );
+  wrap.append(header);
+  if (rq.note) {
+    wrap.append(el("p", { style: "margin:0;font-style:italic;color:var(--ink-2)" },
+      "“" + rq.note + "”"));
+  }
+
+  // Side-by-side rows
+  const pair = el("div", { style: "display:grid;grid-template-columns:1fr 1fr;gap:.5rem" });
+  const side = (label, name, sl, phone) => {
+    const box = el("div", {
+      style: "border:1px solid var(--line);border-radius:6px;padding:.5rem .7rem;background:var(--bg-elev)" });
+    box.append(
+      el("div", { class: "hint", style: "font-size:.75rem;text-transform:uppercase;letter-spacing:.05em" }, label),
+      el("div", { style: "font-weight:600;color:var(--ink-2)" }, name || "(unknown)"),
+      el("div", { class: "hint", style: "font-size:.8rem" },
+        (sl ? "SL " + sl : "") + (sl && phone ? " · " : "") + (phone || "")),
+    );
+    return box;
+  };
+  pair.append(
+    side(t("dup.flagged_side"), rq.flagged_name, rq.flagged_sl, rq.flagged_phone),
+    side(t("dup.duplicate_of_side"), rq.dup_name, rq.dup_sl, rq.dup_phone),
+  );
+  wrap.append(pair);
+
+  // Merge/reject controls
+  const keepLabel = el("div", { style: "font-size:.85rem;font-weight:600;margin-top:.3rem" }, t("dup.keep_which"));
+  const radios = el("div", { style: "display:flex;gap:.8rem;flex-wrap:wrap;font-size:.85rem" });
+  const rName = "keep-" + rq.id;
+  const rFlagged = el("input", { type: "radio", name: rName, value: rq.flagged_person_id });
+  const rDup     = el("input", { type: "radio", name: rName, value: rq.duplicate_of_person_id || "" });
+  rFlagged.checked = true;
+  radios.append(
+    el("label", { style: "display:inline-flex;gap:.3rem;align-items:center" }, rFlagged, t("dup.keep_flagged")),
+    el("label", { style: "display:inline-flex;gap:.3rem;align-items:center" }, rDup,     t("dup.keep_duplicate_of")),
+  );
+
+  const note = el("input", {
+    placeholder: t("dup.resolution_note_label"),
+    style: "width:100%;padding:.4rem;border:1px solid var(--line);border-radius:6px;font-size:.85rem",
+  });
+
+  const actions = el("div", { style: "display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.3rem" });
+  const mergeBtn  = el("button", { class: "primary", type: "button" }, t("dup.merge_btn"));
+  const rejectBtn = el("button", { class: "danger",  type: "button" }, t("dup.reject_btn"));
+  const msg = el("span", { class: "hint", style: "margin-left:.4rem" });
+  actions.append(mergeBtn, rejectBtn, msg);
+
+  const resolve = async (action) => {
+    const confirmKey = action === "merge" ? "dup.confirm_merge" : "dup.confirm_reject";
+    if (!confirm(t(confirmKey))) return;
+    const keepId = (radios.querySelector("input:checked") || {}).value || null;
+    if (action === "merge" && !keepId) { msg.textContent = t("err.keep_person_id_required"); return; }
+    mergeBtn.disabled = true; rejectBtn.disabled = true;
+    msg.textContent = t("msg.loading");
+    try {
+      await api(`/api/duplicate-requests/${encodeURIComponent(rq.id)}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({
+          action,
+          keep_person_id: action === "merge" ? keepId : undefined,
+          resolution_note: note.value.trim() || null,
+        }),
+      });
+      msg.textContent = t(action === "merge" ? "dup.merged_toast" : "dup.rejected_toast");
+      refreshDupPendingCount();
+      setTimeout(() => { if (typeof onResolved === "function") onResolved(); }, 500);
+    } catch (err) {
+      msg.textContent = err.message;
+      mergeBtn.disabled = false; rejectBtn.disabled = false;
+    }
+  };
+  mergeBtn.addEventListener("click", () => resolve("merge"));
+  rejectBtn.addEventListener("click", () => resolve("reject"));
+
+  wrap.append(keepLabel, radios, note, actions);
+  return wrap;
 }
 
 // -------------------------------------------------- group report ---
