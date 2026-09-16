@@ -2302,7 +2302,8 @@ function rollList(roll, editable) {
       }
       contactWrap.append(callBtn(r.phone));
       contactWrap.append(saveContactBtn(r.name, r.phone, r.sl_no, r.pincode));
-      if (editable) contactWrap.append(markNonWaBtn(r, rebuildContact));
+      // "Not on WhatsApp?" and "Mark as Duplicate" moved to the Member
+      // Details page to keep the roll row compact.
     };
     rebuildContact();
 
@@ -2315,17 +2316,13 @@ function rollList(roll, editable) {
       li.append(strip);
     });
 
-    // Duplicate-request slot: shows either the pending pill (if this row
-    // already has an open flag) or the "Mark as Duplicate" action. Hidden
-    // in the non-editable garland/drill views to keep those read-only.
+    // Pending-duplicate pill still renders on the row so a coord can see
+    // at a glance which members have an open flag. The action button
+    // itself lives on the Member Details page.
     const dupSlot = el("span", { class: "dup-slot", style: "display:inline-flex;gap:.35rem;align-items:center" });
     const paintDupSlot = () => {
       dupSlot.innerHTML = "";
-      if (hasPendingDupFlag(r.id)) {
-        dupSlot.append(pendingDupPill());
-      } else if (editable && ["njy_coordinator", "njy_leader", "hk_leader"].includes(ME.role)) {
-        dupSlot.append(markDuplicateBtn(r, () => paintDupSlot()));
-      }
+      if (hasPendingDupFlag(r.id)) dupSlot.append(pendingDupPill());
     };
     paintDupSlot();
 
@@ -3022,7 +3019,7 @@ function rollListManageable(roll, currentOwnerUserId) {
       }
       contactWrap.append(callBtn(r.phone));
       contactWrap.append(saveContactBtn(r.name, r.phone, r.sl_no, r.pincode));
-      contactWrap.append(markNonWaBtn(r, rebuildContact));
+      // "Not on WhatsApp?" moved to Member Details.
     };
     rebuildContact();
 
@@ -5057,6 +5054,32 @@ async function renderMemberDetails(personId) {
       };
       paintDup();
       view.append(dupCard);
+    }
+
+    // WhatsApp status toggle — coord/leader/HK can mark this member as
+    // not-on-WhatsApp so future broadcasts skip them and their row uses
+    // SMS instead. Small card mirrors the duplicate-request card style.
+    if (["njy_coordinator", "njy_leader", "hk_leader"].includes(ME.role)) {
+      const waCard = el("div", { class: "card",
+        style: "display:flex;gap:.5rem;align-items:center;padding:.6rem .9rem;margin-bottom:.7rem;flex-wrap:wrap" });
+      const paintWa = () => {
+        waCard.innerHTML = "";
+        const label = person.wa_status === 0
+          ? t("btn.on_wa_toggle")
+          : t("btn.mark_non_wa");
+        waCard.append(el("span", { style: "font-weight:600" }, t("hd.wa_status") + ": "));
+        waCard.append(el("span", { class: "hint" },
+          person.wa_status === 0 ? t("msg.not_on_wa_state") : t("msg.on_wa_state")));
+        const row = { id: person.id, wa_status: person.wa_status };
+        const btn = markNonWaBtn(row, () => {
+          person.wa_status = row.wa_status;
+          paintWa();
+        });
+        btn.style.marginLeft = "auto";
+        waCard.append(btn);
+      };
+      paintWa();
+      view.append(waCard);
     }
 
     const card = el("form", { class: "card", method: "post", action: "javascript:void(0)" });
