@@ -2944,9 +2944,38 @@ async function renderUserDrill(userId) {
     view.append(tallyStrip(tally, ["assigned","chanted_today","followed_up","needs_visit"]));
     // Download CSV — leader/HK drilling into a coord gets the same
     // export button (only when there's actually a roll to export).
+    // Release-all — Director/leader can send this coord's whole roll
+    // back to the Unassigned Pool in one tap (use case: wrong-gender
+    // batch, will re-fill via Members tab bulk-assign afterwards).
     if (roll.length > 0) {
       const toolbar = el("div", { style: "display:flex;gap:.5rem;flex-wrap:wrap;margin:.4rem 0 .6rem" });
       toolbar.append(csvDownloadButton(roll, target.name || "coord", "sangha"));
+      if (target.role === "njy_coordinator"
+          && (ME.role === "hk_leader" || ME.role === "njy_leader")) {
+        const releaseBtn = el("button", { type: "button", class: "danger",
+          style: "padding:.35rem .8rem;border-radius:6px;font-size:.85rem;font-weight:500;cursor:pointer" },
+          t("team.release_all_btn"));
+        releaseBtn.addEventListener("click", async () => {
+          const prompt = t("team.release_all_confirm")
+            .replace("{name}", target.name || "coord")
+            .replace("{n}", String(roll.length));
+          if (!confirm(prompt)) return;
+          releaseBtn.disabled = true;
+          try {
+            const r = await api(`/api/leader/coord/${encodeURIComponent(target.id)}/release-members`, {
+              method: "POST", body: JSON.stringify({}),
+            });
+            alert(t("team.release_all_toast")
+              .replace("{name}", target.name || "coord")
+              .replace("{n}", String(r.unassigned_count)));
+            renderRoute();
+          } catch (err) {
+            alert(err.message || "Release failed");
+            releaseBtn.disabled = false;
+          }
+        });
+        toolbar.append(releaseBtn);
+      }
       view.append(toolbar);
     }
     view.append(beadLegend());
