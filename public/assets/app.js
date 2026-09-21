@@ -1502,18 +1502,27 @@ function renderBroadcastQueue(view) {
     el("div", {
       style: "background:var(--tint-followed,#f6f2ea);padding:.75rem .9rem;border-radius:6px;border-left:3px solid var(--peacock-deep);white-space:pre-wrap;font-size:.88rem;line-height:1.45;color:var(--ink-2);margin-bottom:1rem",
     }, filledMsg),
-    el("div", { style: "display:flex;flex-wrap:wrap;gap:.6rem;align-items:center" },
-      el("a", { class: "bc-big-btn", href: waUrl, target: "_blank", id: "bc-send" },
-        t("bc.send_via_wa")),
+    // Primary row: Load Next Member (green big) + Skip. This sits DIRECTLY
+    // under the message so the coord's eye lands on it the moment they
+    // return from WhatsApp — the previous layout hid it below the WA
+    // button and hint, which coords consistently missed and re-sent the
+    // same person 3-5 times.
+    el("div", { style: "display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.7rem" },
+      el("button", { class: "primary bc-big-btn", id: "bc-next", type: "button",
+        style: "background:var(--peacock-deep,#0e4f52);padding:.85rem 1.3rem;font-size:1rem;flex:1;min-width:200px" },
+        t("bc.load_next")),
       el("button", { class: "btn", id: "bc-skip", type: "button",
-        style: "padding:.55rem .9rem" }, t("btn.skip")),
+        style: "padding:.65rem 1rem" }, t("btn.skip")),
     ),
-    el("p", { class: "bc-hint", style: "margin:.9rem 0 .3rem;font-size:.78rem" },
+    el("p", { class: "bc-hint", style: "margin:0 0 .5rem;font-size:.78rem" },
       t("bc.after_tap_hint")),
+    // Secondary row: Send via WhatsApp — muted-secondary look, sits BELOW
+    // Load Next Member. First-time flow: tap this → WA opens → send msg
+    // → return → tap the green button above.
     el("p", { style: "margin:0" },
-      el("button", { class: "primary", id: "bc-next", type: "button",
-        style: "background:var(--peacock-deep,#0e4f52);padding:.7rem 1.2rem;font-size:.95rem" },
-        t("bc.sent_next")),
+      el("a", { class: "btn bc-wa-secondary", href: waUrl, target: "_blank", id: "bc-send",
+        style: "display:inline-block;padding:.55rem 1rem;font-size:.9rem" },
+        t("bc.send_via_wa")),
     ),
   );
   view.append(card);
@@ -4140,31 +4149,55 @@ async function renderMembers(view) {
   });
 
   // Auto-fill: pre-select up to 40 matching-gender unassigned chanters
-  // for the target coord. Tiered preference on pincode:
-  //   1. same pincode as coord (if coord has one)
-  //   2. same first-3 digits (nearby pincode)
-  //   3. anywhere
-  // Gender is strict — never mix. If only N match, tick N (leave short).
+  // for the target coord, applying the assignment mix rule that seeds do:
+  //   • 17 pincoded chanters (same-pin > first-3-digits > any-pincoded)
+  //   • 23 no-pincode chanters (random)
+  //   • Strict gender match — never mix
+  //   • Within each tier the candidates are shuffled BEFORE slicing so
+  //     the picked 40 isn't just an alphabetical prefix of the source
+  //     list (the visible symptom that led to this fix).
+  // If a bucket runs short, we top up from the other bucket to still
+  // hit 40 where the pool allows.
   autoFillBtn.addEventListener("click", () => {
     autoFillMsg.textContent = "";
     const coord = coordById.get(bulkSelect.value);
     if (!coord) { autoFillMsg.textContent = t("members.auto_fill_pick_coord"); return; }
     if (coord.gender === "?") { autoFillMsg.textContent = t("members.auto_fill_ambiguous"); return; }
-    const cap = 40;
+    const CAP = 40, PIN_TARGET = 17, NOPIN_TARGET = 23;
     const coordPin = String(coord.pincode || "");
     const coordPin3 = coordPin.slice(0, 3);
     const matches = buckets.unassigned.filter(p => chanterGender(p) === coord.gender);
-    const scored = matches.map(p => {
-      const pin = String(p.pincode || "");
-      let tier = 3;
-      if (coordPin && pin === coordPin) tier = 1;
-      else if (coordPin3 && pin.startsWith(coordPin3)) tier = 2;
-      return { p, tier };
-    });
-    scored.sort((a, b) => a.tier - b.tier);
-    const picked = scored.slice(0, cap);
+    const shuffle = (arr) => {
+      const a = arr.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    };
+    // Split by pincode presence
+    const pinced = matches.filter(p => String(p.pincode || "").trim());
+    const noPin  = matches.filter(p => !String(p.pincode || "").trim());
+    // For pincoded: three tier buckets, shuffled inside each tier
+    const tier1 = shuffle(pinced.filter(p => coordPin && String(p.pincode) === coordPin));
+    const tier2 = shuffle(pinced.filter(p => coordPin3 && String(p.pincode).startsWith(coordPin3) && String(p.pincode) !== coordPin));
+    const tier3 = shuffle(pinced.filter(p => !tier1.includes(p) && !tier2.includes(p)));
+    const pincedOrdered = [...tier1, ...tier2, ...tier3];
+    const noPinOrdered  = shuffle(noPin);
+    let pinPicks   = pincedOrdered.slice(0, PIN_TARGET);
+    let noPinPicks = noPinOrdered.slice(0, NOPIN_TARGET);
+    // Top-up: if one bucket ran short, fill from the other so we still
+    // reach 40 when the total pool allows it.
+    if (pinPicks.length < PIN_TARGET) {
+      const need = PIN_TARGET - pinPicks.length;
+      noPinPicks = noPinOrdered.slice(0, NOPIN_TARGET + need);
+    } else if (noPinPicks.length < NOPIN_TARGET) {
+      const need = NOPIN_TARGET - noPinPicks.length;
+      pinPicks = pincedOrdered.slice(0, PIN_TARGET + need);
+    }
+    const picked = [...pinPicks, ...noPinPicks].slice(0, CAP);
     selected.clear();
-    for (const { p } of picked) selected.add(p.id);
+    for (const p of picked) selected.add(p.id);
     autoFillMsg.textContent = `${t("members.auto_fill_prefix")}${picked.length}${t("members.auto_fill_suffix")}`;
     renderAll();
     applyGenderHighlight();

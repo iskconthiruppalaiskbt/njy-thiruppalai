@@ -659,16 +659,15 @@ textarea { min-height: 4rem; resize: vertical; }
 }
 .bead:active { transform: scale(.92); }
 
+/* Status colors — punchy "true" hex values, chosen so a coord can
+ * distinguish yellow / orange / green / red at a glance without having
+ * to interpret. Previous palette was too muted: the red read as pink,
+ * the yellow as mustard, and orange/red were hard to tell apart. */
 .bead[data-color="white"]  { background: var(--mark-none);    border-color: var(--mark-none-edge); }
-.bead[data-color="yellow"] { background: #E8B023;             border-color: #C99510; }
-.bead[data-color="orange"] { background: #DE7A2A;             border-color: #B85F1C; }
-.bead[data-color="green"]  { background: #2FA65D;             border-color: #22854A; }
-/* Red = "needs attention" — soft red fill, not the danger rose, so it
- * reads as "gentle nudge" rather than "alarm". */
-.bead[data-color="red"]    {
-  background: #F4B3B3;
-  border-color: #C7625C;
-}
+.bead[data-color="yellow"] { background: #FACC15;             border-color: #CA8A04; }
+.bead[data-color="orange"] { background: #F97316;             border-color: #C2410C; }
+.bead[data-color="green"]  { background: #22C55E;             border-color: #15803D; }
+.bead[data-color="red"]    { background: #EF4444;             border-color: #B91C1C; }
 
 /* Back-compat: any old numeric data-state still renders as white so
  * partial deploys don't blank the beads. */
@@ -794,6 +793,19 @@ input:focus, textarea:focus { outline: 2px solid var(--focus); outline-offset: 1
 }
 .bc-big-btn:hover { box-shadow: 0 3px 10px rgba(37,211,102,.4); }
 .bc-big-btn:active { transform: translateY(1px); }
+
+/* Muted WhatsApp button — sits BELOW the primary Load-Next-Member row
+ * so the primary CTA (green) wins the eye when the coord returns from
+ * WhatsApp. Faded WA-green background, no shadow. */
+.bc-wa-secondary {
+  background: #E7F5EB;
+  color: #128C7E;
+  border: 1px solid #B7DEC1;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 500;
+}
+.bc-wa-secondary:hover { background: #D9EEDF; }
 
 /* Care-moment "Needs your attention" panel */
 .care-panel {
