@@ -1502,27 +1502,27 @@ function renderBroadcastQueue(view) {
     el("div", {
       style: "background:var(--tint-followed,#f6f2ea);padding:.75rem .9rem;border-radius:6px;border-left:3px solid var(--peacock-deep);white-space:pre-wrap;font-size:.88rem;line-height:1.45;color:var(--ink-2);margin-bottom:1rem",
     }, filledMsg),
-    // Primary row: Load Next Member (green big) + Skip. This sits DIRECTLY
-    // under the message so the coord's eye lands on it the moment they
-    // return from WhatsApp — the previous layout hid it below the WA
-    // button and hint, which coords consistently missed and re-sent the
-    // same person 3-5 times.
-    el("div", { style: "display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.7rem" },
+    // Primary row: "Sent, Next" (green big) sits DIRECTLY under the
+    // message so the coord's eye lands on it the moment they return
+    // from WhatsApp. The previous layout hid it below the WA button
+    // and hint, which coords consistently missed → re-sent the same
+    // person 3-5 times.
+    el("p", { style: "margin:0 0 .7rem" },
       el("button", { class: "primary bc-big-btn", id: "bc-next", type: "button",
-        style: "background:var(--peacock-deep,#0e4f52);padding:.85rem 1.3rem;font-size:1rem;flex:1;min-width:200px" },
-        t("bc.load_next")),
-      el("button", { class: "btn", id: "bc-skip", type: "button",
-        style: "padding:.65rem 1rem" }, t("btn.skip")),
+        style: "background:var(--peacock-deep,#0e4f52);padding:.85rem 1.3rem;font-size:1rem;width:100%" },
+        t("bc.sent_next")),
     ),
-    el("p", { class: "bc-hint", style: "margin:0 0 .5rem;font-size:.78rem" },
+    el("p", { class: "bc-hint", style: "margin:0 0 .6rem;font-size:.78rem" },
       t("bc.after_tap_hint")),
-    // Secondary row: Send via WhatsApp — muted-secondary look, sits BELOW
-    // Load Next Member. First-time flow: tap this → WA opens → send msg
-    // → return → tap the green button above.
-    el("p", { style: "margin:0" },
+    // Secondary row: "Load via WhatsApp" + Skip. WA button is a muted
+    // pill so the green primary above wins the eye. Skip sits right
+    // next to WhatsApp because both are lower-priority actions.
+    el("div", { style: "display:flex;flex-wrap:wrap;gap:.6rem;align-items:center" },
       el("a", { class: "btn bc-wa-secondary", href: waUrl, target: "_blank", id: "bc-send",
         style: "display:inline-block;padding:.55rem 1rem;font-size:.9rem" },
-        t("bc.send_via_wa")),
+        t("bc.load_via_wa")),
+      el("button", { class: "btn", id: "bc-skip", type: "button",
+        style: "padding:.55rem .9rem" }, t("btn.skip")),
     ),
   );
   view.append(card);
@@ -5031,6 +5031,7 @@ async function renderMemberDetails(personId) {
     const canReassign = ME.role === "hk_leader" || ME.role === "njy_leader";
     let reassignBtn = null;
     let reassignArea = null;
+    let releaseBtn  = null;
     if (canReassign) {
       reassignBtn = el("button", { class: "btn", type: "button", style: "margin-left:auto" },
         t("members.reassign_btn"));
@@ -5038,9 +5039,36 @@ async function renderMemberDetails(personId) {
         id: "m-reassign-area",
         style: "flex-basis:100%;display:none;margin-top:.5rem;align-items:center;gap:.5rem;flex-wrap:wrap",
       });
-      banner.append(reassignBtn, reassignArea);
+      // "Release" — one-tap unassign the member back to the Unassigned
+      // Pool. Use case: chanter told the coord they're not interested,
+      // Director wants them off this coord's roll so someone else can
+      // pick them up later. Only visible when the member is currently
+      // assigned to a coord (nothing to release otherwise).
+      if (person.assigned_to_user_id) {
+        releaseBtn = el("button", { class: "btn", type: "button",
+          style: "background:#fbeaea;color:#991B1B;border:1px solid #f0c4c4" },
+          t("members.release_btn"));
+      }
+      banner.append(reassignBtn);
+      if (releaseBtn) banner.append(releaseBtn);
+      banner.append(reassignArea);
     }
     view.append(banner);
+    if (releaseBtn) releaseBtn.addEventListener("click", async () => {
+      if (!confirm(t("members.release_confirm"))) return;
+      releaseBtn.disabled = true;
+      try {
+        await api(`/api/person/${encodeURIComponent(personId)}/assign`, {
+          method: "POST", body: JSON.stringify({ assigned_to_user_id: null }),
+        });
+        person.assigned_to_user_id = null;
+        $("m-coord-name").textContent = t("members.unassigned_label");
+        releaseBtn.remove();
+      } catch (err) {
+        alert(err.message);
+        releaseBtn.disabled = false;
+      }
+    });
 
     let eligibleLoaded = false;
     if (reassignBtn) reassignBtn.addEventListener("click", async () => {
