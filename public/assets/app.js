@@ -4059,10 +4059,15 @@ async function renderMembers(view) {
   });
   peopleContent.append(searchInput);
 
-  // Bucketize
-  const byId = new Map(people.map(p => [p.id, p]));
+  // Bucketize. Members flagged not_interested=1 are hidden from every
+  // section (they belong nowhere in the assignment pipeline). They
+  // still exist in the DB and remain openable via Member Details from
+  // other entry points (search, direct link) — the Leader/Director can
+  // un-mark them from there.
+  const assignable = people.filter(p => !p.not_interested);
+  const byId = new Map(assignable.map(p => [p.id, p]));
   const buckets = { mine: [], others: [], unassigned: [] };
-  for (const p of people) buckets[p.section].push(p);
+  for (const p of assignable) buckets[p.section].push(p);
 
   // Per-section state: search-filtered rows, sort key + direction.
   const sectionsState = {
@@ -5031,7 +5036,8 @@ async function renderMemberDetails(personId) {
     const canReassign = ME.role === "hk_leader" || ME.role === "njy_leader";
     let reassignBtn = null;
     let reassignArea = null;
-    let releaseBtn  = null;
+    let notInterestedBtn = null;
+    let notInterestedBadge = null;
     if (canReassign) {
       reassignBtn = el("button", { class: "btn", type: "button", style: "margin-left:auto" },
         t("members.reassign_btn"));
@@ -5039,34 +5045,44 @@ async function renderMemberDetails(personId) {
         id: "m-reassign-area",
         style: "flex-basis:100%;display:none;margin-top:.5rem;align-items:center;gap:.5rem;flex-wrap:wrap",
       });
-      // "Release" — one-tap unassign the member back to the Unassigned
-      // Pool. Use case: chanter told the coord they're not interested,
-      // Director wants them off this coord's roll so someone else can
-      // pick them up later. Only visible when the member is currently
-      // assigned to a coord (nothing to release otherwise).
-      if (person.assigned_to_user_id) {
-        releaseBtn = el("button", { class: "btn", type: "button",
+      // "Mark as Not Interested" — flags the person and clears any
+      // assignment. Row stays in the DB (audit) but never appears in
+      // Unassigned Pool, coord rolls, Auto-fill picker, or Bulk-assign.
+      // If already marked, show a red badge + an Unmark button instead.
+      if (person.not_interested) {
+        notInterestedBadge = el("span", {
+          style: "background:#fbeaea;color:#991B1B;border:1px solid #f0c4c4;border-radius:12px;padding:.2rem .6rem;font-size:.8rem;font-weight:600",
+        }, t("members.not_interested_badge"));
+        notInterestedBtn = el("button", { class: "btn", type: "button" },
+          t("members.unmark_not_interested_btn"));
+      } else {
+        notInterestedBtn = el("button", { class: "btn", type: "button",
           style: "background:#fbeaea;color:#991B1B;border:1px solid #f0c4c4" },
-          t("members.release_btn"));
+          t("members.mark_not_interested_btn"));
       }
       banner.append(reassignBtn);
-      if (releaseBtn) banner.append(releaseBtn);
+      if (notInterestedBadge) banner.append(notInterestedBadge);
+      if (notInterestedBtn) banner.append(notInterestedBtn);
       banner.append(reassignArea);
     }
     view.append(banner);
-    if (releaseBtn) releaseBtn.addEventListener("click", async () => {
-      if (!confirm(t("members.release_confirm"))) return;
-      releaseBtn.disabled = true;
+    if (notInterestedBtn) notInterestedBtn.addEventListener("click", async () => {
+      const isMarking = !person.not_interested;
+      const confirmKey = isMarking ? "members.mark_not_interested_confirm" : "members.unmark_not_interested_confirm";
+      if (!confirm(t(confirmKey))) return;
+      notInterestedBtn.disabled = true;
       try {
-        await api(`/api/person/${encodeURIComponent(personId)}/assign`, {
-          method: "POST", body: JSON.stringify({ assigned_to_user_id: null }),
+        await api(`/api/person/${encodeURIComponent(personId)}/not-interested`, {
+          method: "POST", body: JSON.stringify({ not_interested: isMarking ? 1 : 0 }),
         });
-        person.assigned_to_user_id = null;
-        $("m-coord-name").textContent = t("members.unassigned_label");
-        releaseBtn.remove();
+        person.not_interested = isMarking ? 1 : 0;
+        if (isMarking) person.assigned_to_user_id = null;
+        // Simplest UX: re-render the whole Member Details page so the
+        // banner reflects the new state (badge/label/coord-name).
+        renderMemberDetails(personId);
       } catch (err) {
         alert(err.message);
-        releaseBtn.disabled = false;
+        notInterestedBtn.disabled = false;
       }
     });
 
