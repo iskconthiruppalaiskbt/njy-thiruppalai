@@ -705,6 +705,9 @@ const DICT = {
     "team.edit_password_hint": "Minimum 6 characters. Leave blank to keep the existing password.",
     "team.edit_password_too_short": "Password must be at least 6 characters.",
     "team.delete_confirm_prompt": "Delete coordinator {name}? This will deactivate their login and move their {n} members to the Unassigned Pool.",
+    "team.delete_leader_btn": "Delete Leader",
+    "team.delete_leader_confirm_prompt": "Delete leader {name}? This will deactivate their login. Their {n} coordinators will remain active but become unattached — you'll need to re-attach them to another leader via that leader's Assign Coords button. This cannot be undone from the app.",
+    "team.leader_deleted_toast": "Leader {name} deleted. {n} coordinators are now unattached — re-attach them from another leader.",
     "team.coord_updated_toast": "Coordinator updated.",
     "team.coord_deleted_toast": "Coordinator {name} deleted. {n} members moved to Unassigned Pool.",
 
@@ -1775,6 +1778,9 @@ const DICT = {
     "team.edit_password_hint": "குறைந்தது 6 எழுத்துகள். தற்போதைய கடவுச்சொல்லை வைக்க வெறுமையாக விடவும்.",
     "team.edit_password_too_short": "கடவுச்சொல் குறைந்தது 6 எழுத்துகள் இருக்க வேண்டும்.",
     "team.delete_confirm_prompt": "ஒருங்கிணைப்பாளர் {name} ஐ நீக்கவா? அவர்களின் login செயலிழக்கப்படும், அவர்களின் {n} உறுப்பினர்கள் ஒதுக்கப்படாத Pool-க்கு நகர்த்தப்படுவார்கள்.",
+    "team.delete_leader_btn": "தலைவரை நீக்கு",
+    "team.delete_leader_confirm_prompt": "தலைவர் {name} ஐ நீக்கவா? அவர்களின் login செயலிழக்கப்படும். அவர்களின் {n} ஒருங்கிணைப்பாளர்கள் செயலில் இருப்பர் ஆனால் இணைக்கப்படாதவர்களாகும் — வேறு தலைவரின் 'Assign Coords' பொத்தான் மூலம் அவர்களை மீண்டும் இணைக்க வேண்டும். இதை app-லிருந்து மீட்க முடியாது.",
+    "team.leader_deleted_toast": "தலைவர் {name} நீக்கப்பட்டார். {n} ஒருங்கிணைப்பாளர்கள் இப்போது இணைக்கப்படாதவர்கள் — வேறு தலைவரிடமிருந்து மீண்டும் இணைக்கவும்.",
     "team.coord_updated_toast": "ஒருங்கிணைப்பாளர் புதுப்பிக்கப்பட்டார்.",
     "team.coord_deleted_toast": "ஒருங்கிணைப்பாளர் {name} நீக்கப்பட்டார். {n} உறுப்பினர்கள் ஒதுக்கப்படாத Pool-க்கு நகர்த்தப்பட்டனர்.",
 

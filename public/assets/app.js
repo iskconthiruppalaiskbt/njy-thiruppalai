@@ -2560,7 +2560,14 @@ async function renderLeaderDrill(leaderId) {
     if (ME.role === "hk_leader") {
       const assignBtn = el("button", { class: "primary" }, t("btn.assign_coords"));
       assignBtn.addEventListener("click", () => openAssignCoordsModal(leaderId, name, users));
-      view.append(el("p", { style: "margin:.6rem 0" }, assignBtn));
+      // Delete Leader (HK only) — sits next to Assign, styled danger so
+      // it doesn't get tapped by mistake. Confirms with the coord count
+      // that will float free (their manager_user_id → NULL, then
+      // Director re-attaches from another leader's Assign-Coords modal).
+      const delBtn = el("button", { class: "danger", type: "button", style: "margin-left:.5rem" },
+        t("team.delete_leader_btn"));
+      delBtn.addEventListener("click", () => openDeleteLeaderConfirm(leaderId, name, myCoordRows.length));
+      view.append(el("p", { style: "margin:.6rem 0" }, assignBtn, delBtn));
     }
 
     view.append(el("h3", { class: "section" }, t("hd.currently_assigned")));
@@ -2857,6 +2864,30 @@ function openEditCoordModal(coord) {
 
   backdrop.append(box);
   document.body.append(backdrop);
+}
+
+function openDeleteLeaderConfirm(leaderId, name, coordCount) {
+  const prompt = t("team.delete_leader_confirm_prompt")
+    .replace("{name}", name || "")
+    .replace("{n}", String(coordCount || 0));
+  if (!confirm(prompt)) return;
+  (async () => {
+    try {
+      const r = await api(`/api/hk/leader/${encodeURIComponent(leaderId)}`, {
+        method: "DELETE",
+      });
+      const orphaned = Number(r && r.orphaned_count) || 0;
+      const toast = t("team.leader_deleted_toast")
+        .replace("{name}", name || "")
+        .replace("{n}", String(orphaned));
+      showTeamToast(toast);
+      // Back to Director home — the leader row we were drilled into is
+      // now inactive so re-rendering the drill-in would look broken.
+      location.hash = "#/";
+    } catch (err) {
+      alert(err.message || t("team.failed"));
+    }
+  })();
 }
 
 function openDeleteCoordConfirm(coord) {
