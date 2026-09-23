@@ -698,10 +698,13 @@ textarea { min-height: 4rem; resize: vertical; }
   border: 1.5px solid var(--mark-none-edge); background: var(--mark-none);
   display: inline-block;
 }
-.bead-legend .swatch[data-c="yellow"] { background: #E8B023; border-color: #C99510; }
-.bead-legend .swatch[data-c="orange"] { background: #DE7A2A; border-color: #B85F1C; }
-.bead-legend .swatch[data-c="green"]  { background: #2FA65D; border-color: #22854A; }
-.bead-legend .swatch[data-c="red"]    { background: #F4B3B3; border-color: #C7625C; }
+/* Legend swatches — same Prabhuji-supplied true hex values as the
+ * beads themselves so the legend at the top of the roll matches
+ * what the coord sees rendered on each row. */
+.bead-legend .swatch[data-c="yellow"] { background: #FFFF00; border-color: #CCCC00; }
+.bead-legend .swatch[data-c="orange"] { background: #FFA500; border-color: #CC7A00; }
+.bead-legend .swatch[data-c="green"]  { background: #00B050; border-color: #007A3A; }
+.bead-legend .swatch[data-c="red"]    { background: #FF0000; border-color: #B30000; }
 
 /* -------------------------------------------------- forms */
 .card {
