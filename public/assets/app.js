@@ -3013,7 +3013,18 @@ async function renderUserDrill(userId) {
             .replace("{name}", target.name || "coord")
             .replace("{n}", String(roll.length));
           if (!confirm(prompt)) return;
+          // Visual processing state. The endpoint does a per-person
+          // loop server-side, so for a 40-member roll it takes a few
+          // seconds — Directors were tapping again during the wait
+          // thinking nothing had happened. Now the button greys out,
+          // swaps to "Releasing..." + a spinning glyph, and cursor
+          // switches to wait so re-taps are visually impossible.
+          const origText = releaseBtn.textContent;
           releaseBtn.disabled = true;
+          releaseBtn.style.opacity = "0.55";
+          releaseBtn.style.cursor = "wait";
+          releaseBtn.style.pointerEvents = "none";
+          releaseBtn.textContent = "⏳ " + t("team.releasing");
           try {
             const r = await api(`/api/leader/coord/${encodeURIComponent(target.id)}/release-members`, {
               method: "POST", body: JSON.stringify({}),
@@ -3025,6 +3036,10 @@ async function renderUserDrill(userId) {
           } catch (err) {
             alert(err.message || "Release failed");
             releaseBtn.disabled = false;
+            releaseBtn.style.opacity = "";
+            releaseBtn.style.cursor = "";
+            releaseBtn.style.pointerEvents = "";
+            releaseBtn.textContent = origText;
           }
         });
         toolbar.append(releaseBtn);
