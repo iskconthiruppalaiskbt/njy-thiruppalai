@@ -1134,11 +1134,30 @@ a[download]:hover {
      ~60vh fits 15-20 rows on desktop; narrow phones cap a little
      tighter (see the 640px media query below). Horizontal scroll is
      kept for narrow columns; sticky <thead> stays pinned to the top
-     of each container while its own tbody scrolls beneath it. */
+     of each container while its own tbody scrolls beneath it.
+     `contain: layout paint` isolates layout/paint work to this box
+     so a scroll inside doesn't reflow the rest of the page. */
   max-height: 60vh;
   overflow-y: auto;
   overflow-x: auto;
   margin: 0;
+  contain: layout paint;
+}
+/* CRITICAL perf fix (Members-tab freeze on horizontal scroll):
+   with ~3000 rows in one tbody and a sticky <thead>, every horizontal
+   scroll frame forces the browser to recompute sticky positioning
+   across the whole row set — O(n) per frame, which locks up the
+   Director's laptop for seconds at a time. `content-visibility: auto`
+   tells the browser to skip layout & paint of off-screen rows
+   entirely, cutting per-frame work to O(visible rows). The
+   `contain-intrinsic-size` hint keeps scrollbar geometry stable so
+   the thumb doesn't jump as rows are skipped.
+   Supported in every browser Prabhuji's team uses (Chromium/Edge/
+   Safari 18+). Safari <18 degrades gracefully — it just ignores the
+   properties and behaves as before, i.e. same freeze but no crash. */
+.members-table tbody tr {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 2.2rem;
 }
 .members-table {
   width: 100%;
