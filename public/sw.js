@@ -9,7 +9,7 @@
 
 // Bump this whenever any static asset changes so live users pick up
 // the new bundle within one reload of the app shell.
-const SHELL_VERSION = "njy-shell-v98";
+const SHELL_VERSION = "njy-shell-v99";
 // On localhost / 127.x we NEVER cache — otherwise every dev change gets
 // served from stale cache and looks like the change didn't ship. In
 // production this SW behaves normally.

@@ -659,15 +659,15 @@ textarea { min-height: 4rem; resize: vertical; }
 }
 .bead:active { transform: scale(.92); }
 
-/* Status colors — punchy "true" hex values, chosen so a coord can
- * distinguish yellow / orange / green / red at a glance without having
- * to interpret. Previous palette was too muted: the red read as pink,
- * the yellow as mustard, and orange/red were hard to tell apart. */
+/* Status colors — Prabhuji-supplied true hex values so a coord can
+ * distinguish yellow / orange / green / red at a glance. Do not
+ * substitute Tailwind-style muted variants; these exact values are
+ * what she asked for. */
 .bead[data-color="white"]  { background: var(--mark-none);    border-color: var(--mark-none-edge); }
-.bead[data-color="yellow"] { background: #FACC15;             border-color: #CA8A04; }
-.bead[data-color="orange"] { background: #F97316;             border-color: #C2410C; }
-.bead[data-color="green"]  { background: #22C55E;             border-color: #15803D; }
-.bead[data-color="red"]    { background: #EF4444;             border-color: #B91C1C; }
+.bead[data-color="yellow"] { background: #FFFF00;             border-color: #CCCC00; }
+.bead[data-color="orange"] { background: #FFA500;             border-color: #CC7A00; }
+.bead[data-color="green"]  { background: #00B050;             border-color: #007A3A; }
+.bead[data-color="red"]    { background: #FF0000;             border-color: #B30000; }
 
 /* Back-compat: any old numeric data-state still renders as white so
  * partial deploys don't blank the beads. */

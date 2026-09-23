@@ -505,7 +505,7 @@ function renderHeaderContactPills() {
   if (!line) return;
   const logout = $("logout");
   const pill = (label, phone) => {
-    const digits = String(phone || "").replace(/[^\d]/g, "");
+    const digits = toWaDigits(phone);
     if (!digits) return null;
     return el("a", {
       class: "hdr-contact",
@@ -954,13 +954,26 @@ function renderWaTemplateCard() {
   return card;
 }
 
-// CHANGE 5 — canonical wa.me anchor helper. Strips "+" and non-digits
-// (matches server-side waDeepLink so the fix in CHANGE 1 applies
-// everywhere), and returns an inline "💬 <label>" pill. Returns an
-// empty placeholder if the phone is missing so callers don't need to
-// null-check.
-function wame(phone, label) {
+// Normalise a phone number into digits suitable for a wa.me / api.whatsapp
+// URL. Strips "+", spaces, dashes; if the result is a bare 10-digit Indian
+// mobile ("9843897547"), prepends "91" so WhatsApp mobile doesn't reject
+// it with "country code is missing" (which was breaking coord phones that
+// were saved without the +91 prefix). Web WA is more lenient — hence the
+// bug appeared only on phone, per Prabhuji's report.
+function toWaDigits(phone) {
   const digits = String(phone || "").replace(/[^\d]/g, "");
+  if (!digits) return "";
+  if (digits.length === 10) return "91" + digits;
+  // Some entries were saved as "09843…" — strip the leading 0 and prepend 91.
+  if (digits.length === 11 && digits.startsWith("0")) return "91" + digits.slice(1);
+  return digits;
+}
+
+// CHANGE 5 — canonical wa.me anchor helper. Uses toWaDigits so every
+// pill on the page prepends +91 for 10-digit Indian mobiles, matching
+// what WhatsApp mobile requires.
+function wame(phone, label) {
+  const digits = toWaDigits(phone);
   if (!digits) return el("span", { hidden: true });
   return el("a", {
     class: "btn",
@@ -1484,7 +1497,7 @@ function renderBroadcastQueue(view) {
   // → Location: …&text=%EF%BF%BD…  (the replacement character)
   // api.whatsapp.com/send/ is the endpoint wa.me redirects to and it
   // preserves the codepoints intact. Works on WA mobile app + Web + Desktop.
-  const waPhone = String(cur.phone || "").replace(/[^\d]/g, "");
+  const waPhone = toWaDigits(cur.phone);
   const waUrl = waPhone
     ? `https://api.whatsapp.com/send/?phone=${waPhone}&text=${encodeURIComponent(filledMsg)}`
     : `https://api.whatsapp.com/send/?text=${encodeURIComponent(filledMsg)}`;
@@ -1510,17 +1523,17 @@ function renderBroadcastQueue(view) {
     el("p", { style: "margin:0 0 .7rem" },
       el("button", { class: "primary bc-big-btn", id: "bc-next", type: "button",
         style: "background:var(--peacock-deep,#0e4f52);padding:.85rem 1.3rem;font-size:1rem;width:100%" },
-        t("bc.sent_next")),
+        t("bc.load_next")),
     ),
     el("p", { class: "bc-hint", style: "margin:0 0 .6rem;font-size:.78rem" },
       t("bc.after_tap_hint")),
-    // Secondary row: "Load via WhatsApp" + Skip. WA button is a muted
+    // Secondary row: "Send via WhatsApp" + Skip. WA button is a muted
     // pill so the green primary above wins the eye. Skip sits right
     // next to WhatsApp because both are lower-priority actions.
     el("div", { style: "display:flex;flex-wrap:wrap;gap:.6rem;align-items:center" },
       el("a", { class: "btn bc-wa-secondary", href: waUrl, target: "_blank", id: "bc-send",
         style: "display:inline-block;padding:.55rem 1rem;font-size:.9rem" },
-        t("bc.load_via_wa")),
+        t("bc.send_via_wa")),
       el("button", { class: "btn", id: "bc-skip", type: "button",
         style: "padding:.55rem .9rem" }, t("btn.skip")),
     ),
@@ -4059,15 +4072,15 @@ async function renderMembers(view) {
   });
   peopleContent.append(searchInput);
 
-  // Bucketize. Members flagged not_interested=1 are hidden from every
-  // section (they belong nowhere in the assignment pipeline). They
-  // still exist in the DB and remain openable via Member Details from
-  // other entry points (search, direct link) — the Leader/Director can
-  // un-mark them from there.
-  const assignable = people.filter(p => !p.not_interested);
-  const byId = new Map(assignable.map(p => [p.id, p]));
+  // Bucketize. Members flagged not_interested=1 STAY visible in their
+  // section (usually Unassigned) so Director sees the full picture,
+  // but they carry a NOT INTERESTED badge in the row and are excluded
+  // from the Auto-fill picker + Bulk-assign candidate set (see the
+  // per-site filters below). The row's checkbox is also hidden so
+  // Director can't accidentally tick them into a bulk-assign batch.
+  const byId = new Map(people.map(p => [p.id, p]));
   const buckets = { mine: [], others: [], unassigned: [] };
-  for (const p of assignable) buckets[p.section].push(p);
+  for (const p of people) buckets[p.section].push(p);
 
   // Per-section state: search-filtered rows, sort key + direction.
   const sectionsState = {
@@ -4171,7 +4184,11 @@ async function renderMembers(view) {
     const CAP = 40, PIN_TARGET = 17, NOPIN_TARGET = 23;
     const coordPin = String(coord.pincode || "");
     const coordPin3 = coordPin.slice(0, 3);
-    const matches = buckets.unassigned.filter(p => chanterGender(p) === coord.gender);
+    // Never pick not_interested members — they've been marked as
+    // do-not-reassign by a Leader/Director and must stay excluded from
+    // every automated selection.
+    const matches = buckets.unassigned.filter(p =>
+      chanterGender(p) === coord.gender && !p.not_interested);
     const shuffle = (arr) => {
       const a = arr.slice();
       for (let i = a.length - 1; i > 0; i--) {
@@ -4245,6 +4262,10 @@ async function renderMembers(view) {
       sectionsState.others.rows = buckets.others;
       sectionsState.unassigned.rows = buckets.unassigned;
       selected.clear();
+      // Clear the "Selected N" hint from Auto-fill so only the fresh
+      // "Assigned N" message shows — the two side-by-side confused
+      // Prabhuji into thinking Assign had double-processed the pool.
+      autoFillMsg.textContent = "";
       bulkMsg.textContent = `${t("members.bulk_ok_prefix")}${r.assigned}${t("members.bulk_ok_suffix")}`;
       bulkSelect.value = "";
       renderAll();
@@ -4363,25 +4384,37 @@ async function renderMembers(view) {
             location.hash = `#/member/${encodeURIComponent(p.id)}`;
           });
           if (showCheckbox) {
-            const cb = el("input", { type: "checkbox" });
-            if (selected.has(p.id)) cb.setAttribute("checked", "");
-            cb.addEventListener("change", () => {
-              if (cb.checked) selected.add(p.id);
-              else selected.delete(p.id);
-              refreshBulkBar();
-            });
-            tr.append(el("td", { class: "col-check" }, cb));
+            // Not-interested members: no checkbox — they must never be
+            // ticked into a bulk-assign batch.
+            if (p.not_interested) {
+              tr.append(el("td", { class: "col-check" }, ""));
+            } else {
+              const cb = el("input", { type: "checkbox" });
+              if (selected.has(p.id)) cb.setAttribute("checked", "");
+              cb.addEventListener("change", () => {
+                if (cb.checked) selected.add(p.id);
+                else selected.delete(p.id);
+                refreshBulkBar();
+              });
+              tr.append(el("td", { class: "col-check" }, cb));
+            }
           }
           tr.append(el("td", { class: "sl-cell" },
             (p.sl_no != null && p.sl_no !== "") ? String(p.sl_no) : "—"));
-          tr.append(el("td", { class: "name-cell" }, p.name || "—"));
+          const nameCell = el("td", { class: "name-cell" }, p.name || "—");
+          if (p.not_interested) {
+            nameCell.append(el("span", {
+              style: "margin-left:.4rem;background:#fbeaea;color:#991B1B;border:1px solid #f0c4c4;border-radius:10px;padding:.1rem .45rem;font-size:.68rem;font-weight:600;vertical-align:middle",
+            }, t("members.not_interested_badge")));
+          }
+          tr.append(nameCell);
           if (showGenderCol) {
             tr.append(el("td", { class: "gender-cell" }, g));
           }
           const phoneCell = el("td", { class: "phone-cell" });
           if (p.phone) {
             phoneCell.append(document.createTextNode(p.phone));
-            const waDigits = String(p.phone).replace(/[^\d]/g, "");
+            const waDigits = toWaDigits(p.phone);
             if (waDigits) {
               const wa = el("a", {
                 class: "wa-btn",
@@ -4546,7 +4579,7 @@ async function renderMembersCoordsTab(container, setCount) {
       const tr = el("tr", {});
       const actions = el("div", { style: "display:flex;gap:.25rem;flex-wrap:wrap;justify-content:flex-end" });
       if (c.phone) {
-        const waDigits = String(c.phone).replace(/[^\d]/g, "");
+        const waDigits = toWaDigits(c.phone);
         if (waDigits) {
           actions.append(el("a", {
             class: "wa-btn",
@@ -4657,7 +4690,7 @@ async function renderMembersLeadersTab(container, setCount) {
     for (const l of rows) {
       const actions = el("div", { style: "display:flex;gap:.25rem;flex-wrap:wrap;justify-content:flex-end" });
       if (l.phone) {
-        const waDigits = String(l.phone).replace(/[^\d]/g, "");
+        const waDigits = toWaDigits(l.phone);
         if (waDigits) {
           actions.append(el("a", {
             class: "wa-btn",
@@ -4892,8 +4925,8 @@ function openCredShareModal({ user, plaintext_password, kind }) {
   const origin = window.location.origin || "https://njy-thiruppalai.pages.dev";
   const username = user.username || "";
   const displayName = user.display_name || username;
-  const coordPhoneDigits = String(user.phone || "").replace(/\D/g, "");
-  const hkPhoneDigits = String(ME && ME.hk_phone || "").replace(/\D/g, "");
+  const coordPhoneDigits = toWaDigits(user.phone);
+  const hkPhoneDigits = toWaDigits(ME && ME.hk_phone);
   const fullHonName = honorificAdjust(displayName);
 
   const backdrop = el("div", {
