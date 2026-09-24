@@ -164,6 +164,11 @@ window.addEventListener("error", (e) => {
 
 const STATE_LABEL = ["uncontacted", "contacted", "responded"];
 const LIFECYCLE = ["chanter","daily","njy1","njy2","njy3","manjari","bv_member","dropped"];
+// Phase 2 subset — the only statuses a Coordinator/Leader/Director can
+// PICK from the roll dropdown. Others render disabled (greyed) so a row
+// that already carries e.g. njy1 still displays it, but nobody can
+// re-select those values until Phase 3 flips the switch.
+const PICKABLE_STATUSES = new Set(["chanter", "daily", "dropped"]);
 // Prettify lifecycle enum values for dropdown display (Plan 4: statuses
 // should read Daily, not daily). Special cases keep NJY / BV as acronyms.
 const LIFECYCLE_LABEL = {
@@ -2271,8 +2276,17 @@ function rollList(roll, editable) {
     // Lifecycle status dropdown — tracks the "daily chanter commitment"
     // for reporting/leaderboards, but no longer gates the Chant button
     // (coords chant any member on their roll, regardless of status).
+    // Only Member / Daily / Dropped are pickable in Phase 2 — NJY 1-3,
+    // Manjari, and BV Member are Phase 3+ statuses and get greyed out
+    // (unless a row already carries that status; then it stays visible
+    // so we don't silently drop the existing value). Dropped behaves
+    // like Not Interested downstream — see /api/person/:id/status.
     const lifecycle = el("select", { class: "lifecycle", "data-status": r.status || "chanter" },
-      ...LIFECYCLE.map(s => el("option", { value: s, selected: r.status === s ? true : undefined }, lifecycleLabel(s))),
+      ...LIFECYCLE.map(s => el("option", {
+        value: s,
+        selected: r.status === s ? true : undefined,
+        disabled: !PICKABLE_STATUSES.has(s) && r.status !== s ? true : undefined,
+      }, lifecycleLabel(s))),
     );
 
     const chant = el("button", { class: "chant-tag" + (r.chanted_today ? " on" : "") },
@@ -3204,7 +3218,11 @@ async function buildManagePanel(person, currentOwnerUserId, onDone) {
   // Status change
   const statusSel = el("select", {},
     ...["chanter","qualified","daily","njy1","njy2","njy3","manjari","bv_member","dropped"]
-      .map(s => el("option", { value: s, selected: person.status === s ? true : undefined }, lifecycleLabel(s) || (s === "qualified" ? "Qualified" : s))),
+      .map(s => el("option", {
+        value: s,
+        selected: person.status === s ? true : undefined,
+        disabled: !PICKABLE_STATUSES.has(s) && person.status !== s ? true : undefined,
+      }, lifecycleLabel(s) || (s === "qualified" ? "Qualified" : s))),
   );
   const statusBtn = el("button", { class: "mini-btn" }, t("btn.set_status_short"));
   statusBtn.addEventListener("click", async () => {
@@ -4230,11 +4248,13 @@ async function renderMembers(view) {
     const CAP = 40, PIN_TARGET = 17, NOPIN_TARGET = 23;
     const coordPin = String(coord.pincode || "");
     const coordPin3 = coordPin.slice(0, 3);
-    // Never pick not_interested members — they've been marked as
-    // do-not-reassign by a Leader/Director and must stay excluded from
-    // every automated selection.
+    // Never pick not-interested or dropped members — both are
+    // do-not-reassign flags and must stay excluded from every
+    // automated selection.
     const matches = buckets.unassigned.filter(p =>
-      chanterGender(p) === coord.gender && !p.not_interested);
+      chanterGender(p) === coord.gender
+      && !p.not_interested
+      && p.status !== "dropped");
     const shuffle = (arr) => {
       const a = arr.slice();
       for (let i = a.length - 1; i > 0; i--) {
@@ -4429,10 +4449,11 @@ async function renderMembers(view) {
             if (ev.target.tagName === "INPUT" || ev.target.tagName === "A" || ev.target.tagName === "BUTTON") return;
             location.hash = `#/member/${encodeURIComponent(p.id)}`;
           });
+          const isBlocked = p.not_interested || p.status === "dropped";
           if (showCheckbox) {
-            // Not-interested members: no checkbox — they must never be
-            // ticked into a bulk-assign batch.
-            if (p.not_interested) {
+            // Not-interested + dropped members: no checkbox — they
+            // must never be ticked into a bulk-assign batch.
+            if (isBlocked) {
               tr.append(el("td", { class: "col-check" }, ""));
             } else {
               const cb = el("input", { type: "checkbox" });
@@ -4452,6 +4473,14 @@ async function renderMembers(view) {
             nameCell.append(el("span", {
               style: "margin-left:.4rem;background:#fbeaea;color:#991B1B;border:1px solid #f0c4c4;border-radius:10px;padding:.1rem .45rem;font-size:.68rem;font-weight:600;vertical-align:middle",
             }, t("members.not_interested_badge")));
+          }
+          if (p.status === "dropped") {
+            // Slightly different tint (amber) than NI red so Director
+            // can tell them apart at a glance even though the downstream
+            // behavior is identical.
+            nameCell.append(el("span", {
+              style: "margin-left:.4rem;background:#fff4d6;color:#8a5a00;border:1px solid #f0d68a;border-radius:10px;padding:.1rem .45rem;font-size:.68rem;font-weight:600;vertical-align:middle",
+            }, t("members.dropped_badge")));
           }
           tr.append(nameCell);
           if (showGenderCol) {
