@@ -163,12 +163,22 @@ window.addEventListener("error", (e) => {
 });
 
 const STATE_LABEL = ["uncontacted", "contacted", "responded"];
-const LIFECYCLE = ["chanter","daily","njy1","njy2","njy3","manjari","bv_member","dropped"];
+const LIFECYCLE = ["chanter","daily","njy1","njy2","njy3","manjari","bv_member","unreachable","uninterested","dropped"];
 // Phase 2 subset — the only statuses a Coordinator/Leader/Director can
 // PICK from the roll dropdown. Others render disabled (greyed) so a row
 // that already carries e.g. njy1 still displays it, but nobody can
 // re-select those values until Phase 3 flips the switch.
-const PICKABLE_STATUSES = new Set(["chanter", "daily", "dropped"]);
+// "unreachable" and "uninterested" are the two removal tags that
+// replaced the single "dropped" bucket — same downstream behavior
+// (clear assignment, skip auto-fill + bulk-assign), different badge
+// so Director can tell at a glance WHY someone was removed. "dropped"
+// stays in the list for back-compat (any pre-split row still displays
+// correctly) but isn't pickable any more.
+const PICKABLE_STATUSES = new Set(["chanter", "daily", "unreachable", "uninterested"]);
+// All three "do not reassign" statuses — treated identically by every
+// assignment-related filter (auto-fill, bulk-assign, coord roll,
+// Unassigned Pool checkbox).
+const BLOCKED_STATUSES = new Set(["dropped", "unreachable", "uninterested"]);
 // Prettify lifecycle enum values for dropdown display (Plan 4: statuses
 // should read Daily, not daily). Special cases keep NJY / BV as acronyms.
 const LIFECYCLE_LABEL = {
@@ -179,6 +189,8 @@ const LIFECYCLE_LABEL = {
   njy3: "NJY 3",
   manjari: "Manjari",
   bv_member: "BV Member",
+  unreachable: "Unreachable",
+  uninterested: "Uninterested",
   dropped: "Dropped",
 };
 function lifecycleLabel(s) { return LIFECYCLE_LABEL[s] || s; }
@@ -4245,16 +4257,32 @@ async function renderMembers(view) {
     const coord = coordById.get(bulkSelect.value);
     if (!coord) { autoFillMsg.textContent = t("members.auto_fill_pick_coord"); return; }
     if (coord.gender === "?") { autoFillMsg.textContent = t("members.auto_fill_ambiguous"); return; }
-    const CAP = 40, PIN_TARGET = 17, NOPIN_TARGET = 23;
+    // Top-up math: compute how many slots the coord has left before
+    // hitting the 40-member cap. If they already have 27, pick 13.
+    // If they already have 40 or more, pick 0 and tell the user why.
+    const TARGET_ROLL = 40;
+    const currentlyAssigned = people.filter(p => p.assigned_to_user_id === coord.id).length;
+    const remaining = Math.max(0, TARGET_ROLL - currentlyAssigned);
+    if (remaining === 0) {
+      autoFillMsg.textContent = t("members.auto_fill_already_full")
+        .replace("{n}", String(currentlyAssigned));
+      return;
+    }
+    // Proportionally split remaining into pincoded / no-pincode using
+    // the same 17 : 23 ratio the full-40 case uses. Round so pin + nopin
+    // == remaining exactly (no off-by-one slot left on the floor).
+    const CAP = remaining;
+    const PIN_TARGET = Math.round(remaining * 17 / 40);
+    const NOPIN_TARGET = remaining - PIN_TARGET;
     const coordPin = String(coord.pincode || "");
     const coordPin3 = coordPin.slice(0, 3);
-    // Never pick not-interested or dropped members — both are
-    // do-not-reassign flags and must stay excluded from every
-    // automated selection.
+    // Never pick any blocked status (not-interested / dropped /
+    // unreachable / uninterested) — all four are do-not-reassign flags
+    // and must stay excluded from every automated selection.
     const matches = buckets.unassigned.filter(p =>
       chanterGender(p) === coord.gender
       && !p.not_interested
-      && p.status !== "dropped");
+      && !BLOCKED_STATUSES.has(p.status));
     const shuffle = (arr) => {
       const a = arr.slice();
       for (let i = a.length - 1; i > 0; i--) {
@@ -4286,7 +4314,12 @@ async function renderMembers(view) {
     const picked = [...pinPicks, ...noPinPicks].slice(0, CAP);
     selected.clear();
     for (const p of picked) selected.add(p.id);
-    autoFillMsg.textContent = `${t("members.auto_fill_prefix")}${picked.length}${t("members.auto_fill_suffix")}`;
+    // Message shows BOTH the pick count AND the coord's current roll
+    // size, so Director sees why we picked (say) 13 and not 40.
+    autoFillMsg.textContent = `${t("members.auto_fill_prefix")}${picked.length}${t("members.auto_fill_suffix")} `
+      + t("members.auto_fill_topup_detail")
+        .replace("{current}", String(currentlyAssigned))
+        .replace("{target}", String(TARGET_ROLL));
     renderAll();
     applyGenderHighlight();
     refreshBulkBar();
@@ -4449,10 +4482,11 @@ async function renderMembers(view) {
             if (ev.target.tagName === "INPUT" || ev.target.tagName === "A" || ev.target.tagName === "BUTTON") return;
             location.hash = `#/member/${encodeURIComponent(p.id)}`;
           });
-          const isBlocked = p.not_interested || p.status === "dropped";
+          const isBlocked = p.not_interested || BLOCKED_STATUSES.has(p.status);
           if (showCheckbox) {
-            // Not-interested + dropped members: no checkbox — they
-            // must never be ticked into a bulk-assign batch.
+            // Blocked rows (not-interested / dropped / unreachable /
+            // uninterested) get no checkbox — they must never land in
+            // a bulk-assign batch.
             if (isBlocked) {
               tr.append(el("td", { class: "col-check" }, ""));
             } else {
@@ -4469,18 +4503,30 @@ async function renderMembers(view) {
           tr.append(el("td", { class: "sl-cell" },
             (p.sl_no != null && p.sl_no !== "") ? String(p.sl_no) : "—"));
           const nameCell = el("td", { class: "name-cell" }, p.name || "—");
+          // One badge per blocking tag. Distinct tints so Director sees
+          // the *reason* at a glance; downstream behavior is identical.
+          const badge = (bgKey, label) => el("span", {
+            style: `margin-left:.4rem;${bgKey};border-radius:10px;padding:.1rem .45rem;font-size:.68rem;font-weight:600;vertical-align:middle`,
+          }, label);
           if (p.not_interested) {
-            nameCell.append(el("span", {
-              style: "margin-left:.4rem;background:#fbeaea;color:#991B1B;border:1px solid #f0c4c4;border-radius:10px;padding:.1rem .45rem;font-size:.68rem;font-weight:600;vertical-align:middle",
-            }, t("members.not_interested_badge")));
+            nameCell.append(badge(
+              "background:#fbeaea;color:#991B1B;border:1px solid #f0c4c4",
+              t("members.not_interested_badge")));
+          }
+          if (p.status === "uninterested") {
+            nameCell.append(badge(
+              "background:#fde7e7;color:#8f1b1b;border:1px solid #f3b8b8",
+              t("members.uninterested_badge")));
+          }
+          if (p.status === "unreachable") {
+            nameCell.append(badge(
+              "background:#e8eef7;color:#1e3a8a;border:1px solid #bcd0ec",
+              t("members.unreachable_badge")));
           }
           if (p.status === "dropped") {
-            // Slightly different tint (amber) than NI red so Director
-            // can tell them apart at a glance even though the downstream
-            // behavior is identical.
-            nameCell.append(el("span", {
-              style: "margin-left:.4rem;background:#fff4d6;color:#8a5a00;border:1px solid #f0d68a;border-radius:10px;padding:.1rem .45rem;font-size:.68rem;font-weight:600;vertical-align:middle",
-            }, t("members.dropped_badge")));
+            nameCell.append(badge(
+              "background:#fff4d6;color:#8a5a00;border:1px solid #f0d68a",
+              t("members.dropped_badge")));
           }
           tr.append(nameCell);
           if (showGenderCol) {
