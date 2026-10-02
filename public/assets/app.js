@@ -785,6 +785,34 @@ async function renderCoordRoll(view) {
       if (ME.hk_phone) line.append(wame(ME.hk_phone, t("pill.contact_hk")));
       view.append(line);
     }
+    // "Request chanters from Director" — only shown when the coord is
+    // below the 40-member target. Taps WhatsApp with a pre-composed
+    // message so Director can see at a glance who's asking and for
+    // how many. Prefers the HK (Director) number; falls back to the
+    // immediate leader if HK phone isn't set on the coord's record.
+    if (ME.role === "njy_coordinator" && roll.length < 40) {
+      const requested = 40 - roll.length;
+      const toPhone = toWaDigits(ME.hk_phone || ME.manager_phone);
+      if (toPhone) {
+        const msgText = t("coord.request_chanters_wa_msg")
+          .replace("{name}", ME.display_name || ME.username || "")
+          .replace("{current}", String(roll.length))
+          .replace("{need}", String(requested));
+        const btn = el("a", {
+          class: "primary",
+          href: `https://api.whatsapp.com/send/?phone=${toPhone}&text=${encodeURIComponent(msgText)}`,
+          target: "_blank", rel: "noopener",
+          style: "display:inline-flex;align-items:center;gap:.4rem;"
+            + "padding:.6rem 1rem;background:#fff6e5;color:#8a5a00;"
+            + "border:1px solid #f0d68a;border-radius:8px;"
+            + "text-decoration:none;font-weight:600;font-size:.9rem;"
+            + "margin:.4rem 0 .6rem",
+        }, "📣 ", t("coord.request_chanters_btn")
+          .replace("{current}", String(roll.length))
+          .replace("{need}", String(requested)));
+        view.append(btn);
+      }
+    }
     // Inline WhatsApp template editor — coords see and edit the message
     // FIRST so they know what will be sent before tapping Broadcast.
     if (roll.length > 0 && ME.role === "njy_coordinator" && can("settings_wa_templates")) {

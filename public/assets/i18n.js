@@ -490,6 +490,8 @@ const DICT = {
     "pill.leader": "Leader",
     "pill.hk": "Director",
     "pill.contact_hk": "Contact Director",
+    "coord.request_chanters_btn": "Request more chanters ({current}/40)",
+    "coord.request_chanters_wa_msg": "Hare Krsna Prabhuji 🙏\n\nThis is {name}. I currently have {current} chanters on my roll (out of 40). Could you please assign {need} more? Thank you.",
     "pill.contact_leader": "Contact Leader",
     "pill.wa": "WA",
 
@@ -1569,6 +1571,8 @@ const DICT = {
     "pill.leader": "தலைவர்",
     "pill.hk": "நிர்வாகி",
     "pill.contact_hk": "நிர்வாகியை தொடர்பு கொள்",
+    "coord.request_chanters_btn": "மேலும் ஜபிப்பவர்கள் கேளு ({current}/40)",
+    "coord.request_chanters_wa_msg": "ஹரே கிருஷ்ண பிரபுஜி 🙏\n\nநான் {name}. என்னிடம் தற்போது {current} ஜபிப்பவர்கள் உள்ளனர் (மொத்தம் 40). தயவுசெய்து மேலும் {need} பேரை ஒதுக்கவும். நன்றி.",
     "pill.contact_leader": "தலைவரை தொடர்பு கொள்",
     "pill.wa": "WA",
 
