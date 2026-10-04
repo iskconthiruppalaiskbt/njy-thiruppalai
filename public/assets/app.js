@@ -2313,20 +2313,23 @@ function rollList(roll, editable) {
     const name = el("div", { class: "name" });
     name.innerHTML = esc(r.name) + `<span class="phone">${esc(r.phone || "")}</span>`;
 
-    // Lifecycle status dropdown — tracks the "daily chanter commitment"
-    // for reporting/leaderboards, but no longer gates the Chant button
-    // (coords chant any member on their roll, regardless of status).
-    // Only Member / Daily / Dropped are pickable in Phase 2 — NJY 1-3,
-    // Manjari, and BV Member are Phase 3+ statuses and get greyed out
-    // (unless a row already carries that status; then it stays visible
-    // so we don't silently drop the existing value). Dropped behaves
-    // like Not Interested downstream — see /api/person/:id/status.
-    const lifecycle = el("select", { class: "lifecycle", "data-status": r.status || "chanter" },
-      ...LIFECYCLE.map(s => el("option", {
+    // Lifecycle status dropdown. Phase 2 pickable: Member, Daily,
+    // Unreachable, Uninterested. NJY 1-3 / Manjari / BV Member stay
+    // in LIFECYCLE but render disabled (greyed) so a row already
+    // carrying one still shows the correct label. "dropped" is
+    // hidden entirely from the dropdown unless the row already has
+    // it — Director asked for this because the old Dropped option
+    // was confusing coords (they couldn't tell Dropped from
+    // Unreachable from Uninterested).
+    const lifecycleOptions = LIFECYCLE
+      .filter(s => s !== "dropped" || r.status === "dropped")
+      .map(s => el("option", {
         value: s,
         selected: r.status === s ? true : undefined,
         disabled: !PICKABLE_STATUSES.has(s) && r.status !== s ? true : undefined,
-      }, lifecycleLabel(s))),
+      }, lifecycleLabel(s)));
+    const lifecycle = el("select", { class: "lifecycle", "data-status": r.status || "chanter" },
+      ...lifecycleOptions,
     );
 
     const chant = el("button", { class: "chant-tag" + (r.chanted_today ? " on" : "") },
@@ -3257,7 +3260,8 @@ async function buildManagePanel(person, currentOwnerUserId, onDone) {
 
   // Status change
   const statusSel = el("select", {},
-    ...["chanter","qualified","daily","njy1","njy2","njy3","manjari","bv_member","dropped"]
+    ...["chanter","qualified","daily","njy1","njy2","njy3","manjari","bv_member","unreachable","uninterested","dropped"]
+      .filter(s => s !== "dropped" || person.status === "dropped")
       .map(s => el("option", {
         value: s,
         selected: person.status === s ? true : undefined,
