@@ -463,19 +463,42 @@ window.replayTour = () => {
 // localStorage keyed by that release id so a Got-it tap sticks. If
 // localStorage is unavailable (private mode, blocked site data) the
 // banner shows every session — annoying but safe, not a crash.
-const WHATSNEW_ID = "v107-oct-2026";
+// Bump when the bullet SET or wording changes so prior dismissals
+// reset and users see the fresh content once.
+const WHATSNEW_ID = "v111-oct-2026-role-scoped";
 function maybeShowWhatsNew() {
   if (!ME) return;
   const key = "njy-whatsnew-dismissed-" + ME.id;
   try { if (localStorage.getItem(key) === WHATSNEW_ID) return; } catch {}
-  // Pull the bullets from i18n so EN + TA stay in sync; one key per bullet.
-  // Add new WHATSNEW_BULLETS entries when WHATSNEW_ID is bumped.
-  const bullets = [
-    t("whatsnew.v107.bullet1"),
-    t("whatsnew.v107.bullet2"),
-    t("whatsnew.v107.bullet3"),
-    t("whatsnew.v107.bullet4"),
-  ];
+  // Role-scoped bullets. Coord sees only what affects their own
+  // flow. Leader sees coord bullets + leader-tier additions. Director
+  // sees everything. Each release defines its own set of i18n keys
+  // and a per-role filter here — keeps WHATSNEW_BULLETS flat and
+  // avoids a config DSL.
+  const role = ME.role;
+  const bullets = [];
+  // Everyone (coord/leader/director) sees these.
+  bullets.push(t("whatsnew.v111.unreachable_split"));
+  bullets.push(t("whatsnew.v111.true_colors"));
+  // Coord-only — the Request Chanters button on My Sangha.
+  if (role === "njy_coordinator") {
+    bullets.push(t("whatsnew.v111.request_chanters_coord"));
+  }
+  // Leader + Director — they're the ones who receive requests + earn
+  // WhatsApp-to-coord touch points.
+  if (role === "njy_leader" || role === "hk_leader") {
+    bullets.push(t("whatsnew.v111.request_chanters_leader"));
+    bullets.push(t("whatsnew.v111.wa_pts_leader"));
+  }
+  // Director-only — Auto-fill top-up, Delete Leader, count fix.
+  if (role === "hk_leader") {
+    bullets.push(t("whatsnew.v111.autofill_topup"));
+    bullets.push(t("whatsnew.v111.delete_leader"));
+    bullets.push(t("whatsnew.v111.count_fix"));
+  }
+  // Nothing to announce for lower / inapplicable roles — don't render
+  // an empty amber card.
+  if (!bullets.length) return;
   const banner = el("div", { class: "whatsnew-banner", role: "status" });
   const header = el("div", { class: "whatsnew-head" },
     el("strong", {}, "🎉 " + t("whatsnew.header")));
