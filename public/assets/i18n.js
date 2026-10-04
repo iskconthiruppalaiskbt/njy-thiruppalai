@@ -460,6 +460,13 @@ const DICT = {
     "btn.skip_tour": "Skip Tour",
     "btn.tour_next": "Next →",
     "btn.got_it": "Got It! Start Using!",
+    "whatsnew.header": "What's new in the app",
+    "whatsnew.v107.bullet1": "Mark members as Unreachable or Uninterested (replaces the old \"Dropped\"). Uninterested = permanent; Unreachable comes back after 30 days so you can try again.",
+    "whatsnew.v107.bullet2": "Auto-fill now TOPS UP to 40 — if you already have 27 members, it picks only 13 more, not 40.",
+    "whatsnew.v107.bullet3": "Coordinators under 40 members see a \"📣 Request more chanters\" button on My Sangha — one tap sends a WhatsApp to Director.",
+    "whatsnew.v107.bullet4": "Director can now Delete a Leader (Team → open leader → Delete). Status colors are now true red/green/yellow/orange across beads and legend.",
+    "update.ready": "New version available",
+    "update.refresh": "Refresh",
 
     // HK-leader drill hierarchy
     "hd.hk_leaders_list": "NJY Leaders",
@@ -1541,6 +1548,13 @@ const DICT = {
     "btn.skip_tour": "சுற்றுப்பயணத்தை தவிர்",
     "btn.tour_next": "அடுத்தது →",
     "btn.got_it": "புரிந்தது! பயன்படுத்தத் தொடங்கு!",
+    "whatsnew.header": "App-ல் புதிதாக என்ன?",
+    "whatsnew.v107.bullet1": "உறுப்பினர்களை 'தொடர்பு இல்லை' (Unreachable) அல்லது 'ஆர்வமில்லை' (Uninterested) என குறிக்கலாம் (பழைய \"Dropped\"-க்கு பதிலாக). Uninterested = நிரந்தரம்; Unreachable 30 நாட்களுக்குப் பிறகு மீண்டும் வரும்.",
+    "whatsnew.v107.bullet2": "Auto-fill இப்போது 40-க்கு நிரப்புகிறது — உங்களிடம் ஏற்கனவே 27 பேர் இருந்தால், அது 13 பேரை மட்டுமே சேர்க்கும், 40 அல்ல.",
+    "whatsnew.v107.bullet3": "40-க்கு குறைவான உறுப்பினர்கள் உள்ள Coordinators-க்கு My Sangha-வில் \"📣 மேலும் ஜபிப்பவர்கள் கேளு\" பொத்தான் தோன்றும் — ஒரு தட்டலில் Director-க்கு WhatsApp செய்யும்.",
+    "whatsnew.v107.bullet4": "Director இப்போது Leader-ஐ Delete செய்யலாம் (Team → leader-ஐ திற → Delete). Status colors இப்போது beads மற்றும் legend முழுவதும் உண்மையான red/green/yellow/orange.",
+    "update.ready": "புதிய பதிப்பு கிடைக்கிறது",
+    "update.refresh": "புதுப்பி",
 
     // HK-leader drill hierarchy
     "hd.hk_leaders_list": "NJY தலைவர்கள்",

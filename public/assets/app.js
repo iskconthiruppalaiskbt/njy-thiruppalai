@@ -365,6 +365,8 @@ async function showApp() {
   refreshLbSide();
   refreshDupPendingCount();
   maybeShowOnboardingTour();
+  maybeShowWhatsNew();
+  setupAutoRefresh();
 }
 
 // Poll the pending-duplicate-count endpoint once on boot and after every
@@ -451,6 +453,104 @@ window.replayTour = () => {
   } catch {}
   maybeShowOnboardingTour();
 };
+
+// "What's new" banner — fires once per release-id. Each release gets a
+// unique WHATSNEW_ID (bump when a new batch of features is worth
+// announcing). The banner shows under the top nav, lists the bullet
+// points for THIS release, and remembers per-user dismissal in
+// localStorage keyed by that release id so a Got-it tap sticks. If
+// localStorage is unavailable (private mode, blocked site data) the
+// banner shows every session — annoying but safe, not a crash.
+const WHATSNEW_ID = "v107-oct-2026";
+function maybeShowWhatsNew() {
+  if (!ME) return;
+  const key = "njy-whatsnew-dismissed-" + ME.id;
+  try { if (localStorage.getItem(key) === WHATSNEW_ID) return; } catch {}
+  // Pull the bullets from i18n so EN + TA stay in sync; one key per bullet.
+  // Add new WHATSNEW_BULLETS entries when WHATSNEW_ID is bumped.
+  const bullets = [
+    t("whatsnew.v107.bullet1"),
+    t("whatsnew.v107.bullet2"),
+    t("whatsnew.v107.bullet3"),
+    t("whatsnew.v107.bullet4"),
+  ];
+  const banner = el("div", { class: "whatsnew-banner", role: "status" });
+  const header = el("div", { class: "whatsnew-head" },
+    el("strong", {}, "🎉 " + t("whatsnew.header")));
+  const dismissBtn = el("button", { class: "whatsnew-dismiss", type: "button",
+    "aria-label": t("btn.got_it") }, "✕");
+  dismissBtn.addEventListener("click", () => {
+    try { localStorage.setItem(key, WHATSNEW_ID); } catch {}
+    banner.remove();
+  });
+  header.append(dismissBtn);
+  const list = el("ul", { class: "whatsnew-list" });
+  for (const b of bullets) list.append(el("li", {}, b));
+  banner.append(header, list);
+  // Insert directly above the main view so it sits under the nav strip
+  // and above any route-specific heading.
+  const viewEl = $("view");
+  if (viewEl && viewEl.parentNode) {
+    viewEl.parentNode.insertBefore(banner, viewEl);
+  } else {
+    document.body.prepend(banner);
+  }
+}
+window.replayWhatsNew = () => {
+  try { localStorage.removeItem("njy-whatsnew-dismissed-" + ME.id); } catch {}
+  document.querySelectorAll(".whatsnew-banner").forEach(n => n.remove());
+  maybeShowWhatsNew();
+};
+
+// Auto-refresh for stale clients. Users who leave the app open for
+// days (or whose PWA shell was installed weeks ago) never see new
+// deploys because the service worker's install happens in the
+// background and only "takes" on the NEXT navigation after the SW
+// finished downloading. We poll the SW every 15 min, and when a new
+// SW enters the `installed` state while there's still a current
+// controller (= a bundle update is waiting), we show a soft toast
+// with a Refresh button. One tap → location.reload() → new bundle
+// serves on the next page.
+function setupAutoRefresh() {
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.getRegistration().then((reg) => {
+    if (!reg) return;
+    const check = () => { reg.update().catch(() => {}); };
+    // Check once on boot (catches a deploy that landed while they
+    // were sleeping) then every 15 min while the tab is open.
+    check();
+    setInterval(check, 15 * 60 * 1000);
+    const wire = (sw) => {
+      if (!sw) return;
+      sw.addEventListener("statechange", () => {
+        if (sw.state === "installed" && navigator.serviceWorker.controller) {
+          showUpdateReadyToast();
+        }
+      });
+    };
+    reg.addEventListener("updatefound", () => wire(reg.installing));
+    // Edge case: a new SW is already `waiting` when we attach (e.g.
+    // the update finished before boot completed).
+    if (reg.waiting && navigator.serviceWorker.controller) {
+      showUpdateReadyToast();
+    }
+  }).catch(() => {});
+}
+let _njyUpdateToastShown = false;
+function showUpdateReadyToast() {
+  if (_njyUpdateToastShown) return;
+  _njyUpdateToastShown = true;
+  const toast = el("div", { class: "update-toast", role: "status" },
+    el("span", {}, "✨ " + t("update.ready")),
+    el("button", { type: "button", class: "update-reload" }, t("update.refresh")),
+  );
+  toast.querySelector(".update-reload").addEventListener("click", () => {
+    // Force a hard reload so the Service Worker's new activate pass
+    // controls the next load without any stale cached JS/HTML.
+    location.reload();
+  });
+  document.body.append(toast);
+}
 
 // Header points chip — small oval showing today's and overall points.
 // Coord:   own points (existing /api/me/points).

@@ -165,6 +165,89 @@ button { font: inherit; cursor: pointer; }
   color: var(--ink-2);
   margin: 0 0 1rem;
 }
+
+/* "What's new" banner — shown once per release (per user, remembered
+ * in localStorage). Warm amber gradient so it reads festival-y
+ * without being alarming. Compact at phone width. */
+.whatsnew-banner {
+  background: linear-gradient(135deg, #fff6e5 0%, #ffeec0 100%);
+  border: 1px solid #f0d68a;
+  border-radius: 10px;
+  padding: .7rem .9rem .7rem 1rem;
+  margin: 0 0 .9rem;
+  color: #5a3d00;
+  box-shadow: 0 1px 3px rgba(138, 90, 0, .08);
+}
+.whatsnew-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: .95rem;
+  margin-bottom: .35rem;
+}
+.whatsnew-head strong { color: #8a5a00; font-weight: 700; }
+.whatsnew-dismiss {
+  background: transparent;
+  border: none;
+  color: #8a5a00;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: .1rem .4rem;
+  border-radius: 4px;
+}
+.whatsnew-dismiss:hover { background: rgba(138,90,0,.1); }
+.whatsnew-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: .82rem;
+  line-height: 1.5;
+  color: #5a3d00;
+}
+.whatsnew-list li { margin: .15rem 0; }
+
+/* "Update ready" toast — pinned to the bottom-right (bottom-center on
+ * phones). Appears when the service worker finishes downloading a new
+ * bundle so users on long-lived tabs/PWA shells can tap Refresh to
+ * pick up new features without having to reinstall. */
+.update-toast {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 9998;
+  background: #0e4f52;
+  color: #fff;
+  padding: .7rem 1rem;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  font-size: .9rem;
+  font-weight: 500;
+  animation: toastSlideIn .25s ease-out;
+}
+.update-toast .update-reload {
+  background: #ffffff;
+  color: #0e4f52;
+  border: none;
+  padding: .4rem .9rem;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: .85rem;
+  cursor: pointer;
+}
+.update-toast .update-reload:hover { background: #e8f3f3; }
+@keyframes toastSlideIn {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@media (max-width: 640px) {
+  .update-toast {
+    left: 1rem; right: 1rem; bottom: 1rem;
+    justify-content: space-between;
+  }
+}
 .loading-line {
   font-style: italic;
   color: var(--muted);
