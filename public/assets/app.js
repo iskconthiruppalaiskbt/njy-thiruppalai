@@ -366,7 +366,9 @@ async function showApp() {
   refreshDupPendingCount();
   maybeShowOnboardingTour();
   maybeShowWhatsNew();
-  setupAutoRefresh();
+  // setupAutoRefresh() intentionally not called — Director didn't want
+  // the "New version available" toast interrupting users. The function
+  // + CSS + i18n strings are left in place so we can re-enable later.
 }
 
 // Poll the pending-duplicate-count endpoint once on boot and after every
