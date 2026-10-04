@@ -1117,16 +1117,29 @@ function toWaDigits(phone) {
 // CHANGE 5 — canonical wa.me anchor helper. Uses toWaDigits so every
 // pill on the page prepends +91 for 10-digit Indian mobiles, matching
 // what WhatsApp mobile requires.
-function wame(phone, label) {
+// Optional third arg: targetCoordId. When passed AND the caller is a
+// leader (njy_leader), fires the contact_coord leader-touch log on
+// click so the leader earns 2 pts (capped at 10 unique coords/day).
+// Omit for links that aren't to a coord (HK contact, chanter contact
+// which has its own mark-contacted flow in attachWaAutoMarkContacted).
+function wame(phone, label, targetCoordId) {
   const digits = toWaDigits(phone);
   if (!digits) return el("span", { hidden: true });
-  return el("a", {
+  const anchor = el("a", {
     class: "btn",
     href: `https://api.whatsapp.com/send/?phone=${digits}`,
     target: "_blank", rel: "noopener",
     title: `WhatsApp: ${phone}`,
     style: "text-decoration:none;padding:.15rem .55rem;border-radius:6px;font-size:.78rem;font-weight:500;background:#25D366;color:#fff;border:none",
   }, "💬 ", label || "WhatsApp");
+  if (targetCoordId && ME && ME.role === "njy_leader") {
+    anchor.addEventListener("click", () => {
+      api("/api/leader/contact-coord-log", {
+        method: "POST", body: JSON.stringify({ coord_id: targetCoordId }),
+      }).catch(() => { /* non-blocking */ });
+    });
+  }
+  return anchor;
 }
 
 // SMS fallback pill (rendered when wa_status === 0). Opens the native
@@ -2156,15 +2169,26 @@ function csvDownloadButton(roll, ownerName, filenamePrefix) {
 // beadwrap and chant toggle use.
 function attachWaAutoMarkContacted(anchor, row, rowBead) {
   anchor.addEventListener("click", () => {
-    // Only fire when there's an assigned person id and the current
-    // state is fresh (0). The server also guards this (0 → 1 only), but
-    // client-side gating avoids a wasted round-trip and a stale toast.
     if (!row || !row.id) return;
     const priorState = row.contact_state || 0;
-    if (priorState !== 0) return;   // already contacted/responded/needs_visit
+    // Fire on EVERY tap now — the server always bumps last_marked_at
+    // (so the bead turns yellow for today) and only promotes
+    // contact_state 0 → 1 (never downgrades). Skipping on priorState
+    // > 0 caused the "re-contact on a later day doesn't light up
+    // yellow + doesn't score a follow-up point" bug.
+    // Last-marked-at bump also matters for the +5 coord follow-up
+    // point (scoreDailyForCoord counts people whose last_marked_at
+    // is today).
 
     // Optimistic UI: flip row + garland to "yellow" (contacted) now.
-    row.contact_state = 1;
+    // Only matters when prior state was 0 — otherwise bead is already
+    // at the right color for its state.
+    if (priorState === 0) {
+      row.contact_state = 1;
+    }
+    // Always bump last_marked_at optimistically so beadColorFor
+    // paints yellow/orange for TODAY regardless of prior state.
+    row.last_marked_at = new Date().toISOString();
     row.bead_color = recomputeBead(row);
     if (rowBead) rowBead.dataset.color = row.bead_color;
     document.querySelectorAll(`.bead[data-person="${row.id}"]`)
@@ -2851,7 +2875,11 @@ function coordCard(c) {
   const midRoll = pctRoll >= 60 ? 0 : (pctRoll >= 30 ? 1 : 2);
   // CHANGE 5 — leader → coord + HK → coord full-mesh: WhatsApp pill next to Open.
   const coordBtns = el("div", { style: "display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;justify-content:flex-end" });
-  if (c.phone) coordBtns.append(wame(c.phone, t("pill.wa")));
+  // Pass the coord's user_id so a leader's tap awards contact_coord
+  // leader-touch (2 pts, cap 10 coords/day). HK and coord taps don't
+  // earn — the server-side gate in /api/leader/contact-coord-log
+  // already handles that.
+  if (c.phone) coordBtns.append(wame(c.phone, t("pill.wa"), c.user_id));
   if (c.phone) coordBtns.append(callBtn(c.phone));
   coordBtns.append(el("a", { class: "btn", href: `#/user/${c.user_id}` }, t("btn.open")));
   // Edit + Delete — leader can act on their own coords; HK unrestricted.
