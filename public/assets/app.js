@@ -774,19 +774,22 @@ function renderNav() {
   const SADHANA_ROLES = ["servant_leader", "member", "sector_servant", "circle_servant"];
   const BV_ROLES = ["hk_leader", "circle_servant", "sector_servant", "servant_leader"];
   const items = [
+    // Position 1: role-dependent home (coord → My Sangha, leader/HK → My Team)
     { href: "#/",          label: t("nav.my_roll"),  when: () => can("coordinator_roll") && OWNS_ROLL.includes(ME.role) },
-    { href: "#/leader",    label: t("nav.team"),     when: () => can("leader_dashboard") },
+    { href: "#/leader",    label: t("nav.my_team"),  when: () => can("leader_dashboard") },
+    // Position 2: Leaderboard (everyone who has access)
+    { href: "#/leaderboard", label: t("nav.leaderboard"), when: () => (can("leaderboard_coord_daily") || can("leaderboard_coord_overall") || can("leaderboard_leaders_daily") || can("leaderboard_leaders_overall")) && ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
+    // Position 3: Members (Director-requested promotion from end-of-nav)
+    { href: "#/members",     label: t("nav.members"),     when: () => can("members_tab") && ["hk_leader","njy_leader","njy_coordinator"].includes(ME.role) },
     // HK tab hidden for HK Leader — the Team tab now carries the 4 KPI
     // tiles + all coordinators. Other roles (if ever granted hk_dashboard
     // by feature-gate) still see it.
     { href: "#/hk",        label: t("nav.hk"),       when: () => can("hk_dashboard") && ME.role !== "hk_leader" },
-    { href: "#/leaderboard", label: t("nav.leaderboard"), when: () => (can("leaderboard_coord_daily") || can("leaderboard_coord_overall") || can("leaderboard_leaders_daily") || can("leaderboard_leaders_overall")) && ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
     { href: "#/duties",    label: t("nav.duties"),   when: () => true },
     { href: "#/events",    label: t("nav.events"),   when: () => can("event_attendance") || can("events_view_list") },
     { href: "#/sadhana",   label: t("nav.sadhana"),  when: () => can("sadhana_chart") && SADHANA_ROLES.includes(ME.role) },
     { href: "#/bv",        label: t("nav.bv"),       when: () => can("bv_structure_editor") && BV_ROLES.includes(ME.role) },
     { href: "#/janmashtami", label: t("nav.janmashtami"), when: () => can("janmashtami_view_page") && ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
-    { href: "#/members",     label: t("nav.members"),     when: () => can("members_tab") && ["hk_leader","njy_leader","njy_coordinator"].includes(ME.role) },
     { href: "#/duplicates",  label: t("dup.nav_link"),    when: () => ME.role === "hk_leader",
       badge: () => window._njyPendingDupCount || 0 },
     { href: "#/profile",     label: t("nav.profile"), when: () => ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
@@ -2872,32 +2875,28 @@ function openAssignCoordsModal(leaderId, leaderName, allUsers) {
   document.body.append(backdrop);
 }
 
-// Reusable per-coordinator progress card. SKJ-cohort focused (initially
-// 100 daily-committed chanters). Two progress bars:
-//   - SKJ chanted today → daily-committed people who chanted today
-//   - Consistency       → daily-committed people with at least one chant
-//                          in the last 3 days (3+ consecutive misses
-//                          means they've been disqualified from the
-//                          streak).
-// Denominators for both = total daily-committed chanters, NOT whole roll.
+// Reusable per-coordinator progress card. Three progress bars reflect
+// what Director actually acts on, all against whole-roll denominator:
+//   - Followed Up Today → distinct chanters this coord touched today
+//                          (yellow/orange dot, or broadcast-sent)
+//   - Chanted Today     → chanters marked chanted today
+//   - Members Consistent → chanters who chanted on ≥80% of days
+//                          since the coord was created
+// Previous SKJ-focused trio (SKJ chanted today / consistency streak)
+// is still returned by the API for back-compat but no longer shown here.
 function coordCard(c) {
-  const dailyTotal = c.daily_chanter_total || 0;
-  const denom = Math.max(1, dailyTotal);
-  const daily_chanted = c.daily_chanted_today || 0;
-  const consistent = c.consistent_daily ?? c.one_month_daily ?? 0;
-  const disqualified = Math.max(0, dailyTotal - consistent);
-  const pctToday = Math.min(100, Math.round(100 * daily_chanted / denom));
-  const pctConsistent = Math.min(100, Math.round(100 * consistent / denom));
-  const midToday = pctToday >= 60 ? 0 : (pctToday >= 30 ? 1 : 2);
-  const midConsistent = pctConsistent >= 60 ? 0 : (pctConsistent >= 30 ? 1 : 2);
-  // Whole-roll chants today — the summary Director actually cares about
-  // when spotting which coord had activity. Independent of daily-commit
-  // status. Uses `chanted_today` (total) / `assigned` (whole roll size).
   const rollTotal = c.assigned || 0;
   const rollDenom = Math.max(1, rollTotal);
   const rollChanted = c.chanted_today || 0;
   const pctRoll = Math.min(100, Math.round(100 * rollChanted / rollDenom));
   const midRoll = pctRoll >= 60 ? 0 : (pctRoll >= 30 ? 1 : 2);
+  const followedUp = c.followed_up_today || 0;
+  const pctFollowed = Math.min(100, Math.round(100 * followedUp / rollDenom));
+  const midFollowed = pctFollowed >= 60 ? 0 : (pctFollowed >= 30 ? 1 : 2);
+  const membersConsistent = c.members_consistent || 0;
+  const pctConsistent = Math.min(100, Math.round(100 * membersConsistent / rollDenom));
+  const midConsistent = pctConsistent >= 60 ? 0 : (pctConsistent >= 30 ? 1 : 2);
+  const dailyTotal = c.daily_chanter_total || 0;
   // CHANGE 5 — leader → coord + HK → coord full-mesh: WhatsApp pill next to Open.
   const coordBtns = el("div", { style: "display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;justify-content:flex-end" });
   // Pass the coord's user_id so a leader's tap awards contact_coord
@@ -2931,21 +2930,22 @@ function coordCard(c) {
       el("div", { class: "hint", style: "margin-top:.2rem" },
         `${dailyTotal}${t("team.daily_committed_suffix")}${c.assigned || 0}${t("team.whole_roll_suffix")}`,
       ),
-      // Whole-roll chants today — first + primary so Director sees who's
-      // actually active regardless of daily-commit status.
+      // Followed Up Today — distinct chanters this coord touched today.
       el("div", { class: "progress-line", style: "margin-top:.55rem" },
+        el("span", { title: t("team.followed_up_today_title") }, t("team.followed_up_today_label")),
+        el("span", { class: "fraction" }, `${followedUp}${t("team.of_infix")}${rollTotal}`),
+      ),
+      el("div", { class: "pbar", "data-mid": String(midFollowed), style: `--pct:${pctFollowed}%` }),
+      // Chanted Today — anyone in roll marked chanted today.
+      el("div", { class: "progress-line", style: "margin-top:.4rem" },
         el("span", {}, t("team.chanted_today_label")),
         el("span", { class: "fraction" }, `${rollChanted}${t("team.of_infix")}${rollTotal}`),
       ),
       el("div", { class: "pbar", "data-mid": String(midRoll), style: `--pct:${pctRoll}%` }),
+      // Members Consistent — ≥80% chant days since this coord started.
       el("div", { class: "progress-line", style: "margin-top:.4rem" },
-        el("span", { title: t("team.skj_today_title") }, t("team.skj_today_label")),
-        el("span", { class: "fraction" }, `${daily_chanted}${t("team.of_infix")}${dailyTotal}`),
-      ),
-      el("div", { class: "pbar", "data-mid": String(midToday), style: `--pct:${pctToday}%` }),
-      el("div", { class: "progress-line", style: "margin-top:.4rem" },
-        el("span", { title: t("team.consistency_title") }, t("team.consistency_label")),
-        el("span", { class: "fraction" }, `${consistent}${t("team.of_infix")}${dailyTotal}${disqualified ? ` · ${disqualified}${t("team.out_suffix")}` : ""}`),
+        el("span", { title: t("team.members_consistent_title") }, t("team.members_consistent_label")),
+        el("span", { class: "fraction" }, `${membersConsistent}${t("team.of_infix")}${rollTotal}`),
       ),
       el("div", { class: "pbar", "data-mid": String(midConsistent), style: `--pct:${pctConsistent}%` }),
     ),
