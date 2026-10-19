@@ -715,7 +715,7 @@ async function refreshLbSide() {
     }
     if (!side) {
       clearTimeout(_lbSideTimer);
-      _lbSideTimer = setTimeout(refreshLbSide, 45_000);
+      _lbSideTimer = setTimeout(refreshLbSide, 180_000);
       return;
     }
     side.innerHTML = "";
@@ -752,7 +752,10 @@ async function refreshLbSide() {
     side.hidden = false;
   } catch (_) { side.hidden = true; }
   clearTimeout(_lbSideTimer);
-  _lbSideTimer = setTimeout(refreshLbSide, 45_000);
+  // Slowed from 45s → 180s (3 min) on 2026-10-19 to cut D1 row-reads.
+  // The sidebar is a glanceable, not a live scoreboard — 3-min freshness
+  // is plenty while the Supabase migration lands.
+  _lbSideTimer = setTimeout(refreshLbSide, 180_000);
 }
 window.refreshLbSide = refreshLbSide;
 
@@ -843,10 +846,12 @@ function renderRoute() {
     let home = null;
     if (ME.role === "hk_leader") home = "#/leader";
     else if (ME.role === "njy_leader") home = "#/leader";
-    else if (ME.role === "njy_coordinator") home = "#/leaderboard/overall/coords";
-    // Coord default is Leaderboard (post-Janmashtami). Janmashtami campaign
-    // is over, so we no longer auto-land coords on #/janmashtami. My Roll
-    // remains available in the nav for explicit navigation.
+    else if (ME.role === "njy_coordinator") home = "#/";
+    // Coord default is "My Roll" (their own chanter list) — a single
+    // /api/roll fetch instead of the heavier leaderboard aggregation.
+    // Changed 2026-10-19 to cut D1 row-reads on the free tier bridge
+    // while the Supabase migration lands; coord still has one tap to
+    // the leaderboard via the nav.
     if (home) { location.replace(home); return; }
   } else if (location.hash === "" || location.hash === "#/") {
     // second and later empty-hash renders → treat as "My roll" (or
