@@ -846,13 +846,15 @@ function renderRoute() {
     let home = null;
     if (ME.role === "hk_leader") home = "#/leader";
     else if (ME.role === "njy_leader") home = "#/leader";
-    else if (ME.role === "njy_coordinator") home = "#/";
-    // Coord default is "My Roll" (their own chanter list) — a single
-    // /api/roll fetch instead of the heavier leaderboard aggregation.
-    // Changed 2026-10-19 to cut D1 row-reads on the free tier bridge
+    // Coord default is "My Roll" which is the empty-hash route itself,
+    // so no redirect is needed (and `location.replace("#/")` would be a
+    // no-op that still `return`s and leaves the view blank — that was
+    // the "refresh My Sangha shows nothing" bug on 2026-10-19).
+    // Changed 2026-10-19 to cut D1 row-reads on the free-tier bridge
     // while the Supabase migration lands; coord still has one tap to
     // the leaderboard via the nav.
-    if (home) { location.replace(home); return; }
+    // Only redirect when `home` is a DIFFERENT URL from the current one.
+    if (home && home !== (location.hash || "#/")) { location.replace(home); return; }
   } else if (location.hash === "" || location.hash === "#/") {
     // second and later empty-hash renders → treat as "My roll" (or
     // whatever renderCoordRoll shows for this role).
