@@ -3213,13 +3213,11 @@ function dailyReportView(r) {
       + `${t("report.reports_today")} ${r.meta.reports_today}`),
     el("div", { class: "tally" },
       cell(T.members_chanted, t("report.members_chanted")),
-      cell(T.rounds, t("report.rounds")),
       cell(`${T.coords_active} / ${T.coords_total}`, t("report.coords_active")),
       cell(fu(T.follow_ups), t("report.follow_ups")),
     ),
     el("div", { class: "tally" },
       cell(`${T.leaders_active} / ${T.leaders_total}`, t("report.leaders_active")),
-      cell(T.self_marked, t("report.self_marked")),
       cell(T.new_daily, t("report.new_daily")),
       cell(T.dropped, t("report.dropped")),
     ),
@@ -3241,9 +3239,9 @@ function dailyReportView(r) {
         `${l.leader_actions} (${l.leader_points} ${t("report.pts")})`] }))),
     el("h3", {}, t("report.by_coord")),
     reportTable(
-      [t("report.col_coord"), t("report.col_leader"), t("report.col_chants"), t("report.col_rounds"), t("report.col_follow_ups")],
+      [t("report.col_coord"), t("report.col_leader"), t("report.col_chants"), t("report.col_follow_ups")],
       r.per_coord.map(c => ({ active: c.active, cells: [
-        c.name, c.leader_name || "—", c.chants, c.rounds, fu(c.follow_ups)] }))),
+        c.name, c.leader_name || "—", c.chants, fu(c.follow_ups)] }))),
   );
   return wrap;
 }
@@ -3263,8 +3261,6 @@ function dailyReportCsv(r) {
   const lines = [
     line(t("report.title"), r.date),
     line(t("report.members_chanted"), T.members_chanted),
-    line(t("report.rounds"), T.rounds),
-    line(t("report.self_marked"), T.self_marked),
     line(t("report.coords_active"), `${T.coords_active} / ${T.coords_total}`),
     line(t("report.leaders_active"), `${T.leaders_active} / ${T.leaders_total}`),
     line(t("report.follow_ups"), fu(T.follow_ups)),
@@ -3274,8 +3270,8 @@ function dailyReportCsv(r) {
     line(t("report.col_leader"), t("report.col_coords_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions"), t("report.pts")),
     ...r.per_leader.map(l => line(l.name, `${l.coords_active} / ${l.coords_total}`, l.chants, fu(l.follow_ups), l.leader_actions, l.leader_points)),
     "",
-    line(t("report.col_coord"), t("report.col_leader"), t("report.col_chants"), t("report.col_rounds"), t("report.col_follow_ups")),
-    ...r.per_coord.map(c => line(c.name, c.leader_name, c.chants, c.rounds, fu(c.follow_ups))),
+    line(t("report.col_coord"), t("report.col_leader"), t("report.col_chants"), t("report.col_follow_ups")),
+    ...r.per_coord.map(c => line(c.name, c.leader_name, c.chants, fu(c.follow_ups))),
   ];
   // BOM so Excel opens Tamil names correctly (same as rollToCsv).
   return "﻿" + lines.join("\r\n") + "\r\n";

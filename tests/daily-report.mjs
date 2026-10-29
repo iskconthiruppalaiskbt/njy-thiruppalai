@@ -59,15 +59,13 @@ test("daily report: rejects bad and future dates", async () => {
 test("daily report: totals, per-coord and per-leader attribution", async () => {
   const { s, c1, leader, ppl } = await seed();
   const day = daysAgo(3);
-  await s.upsertChant({ person_id: ppl[0].id, entry_date: day, chanted: 1, rounds: 16, source: "coordinator", marked_by: c1.id });
-  await s.upsertChant({ person_id: ppl[1].id, entry_date: day, chanted: 1, rounds: 4, source: "self", marked_by: null });
+  await s.upsertChant({ person_id: ppl[0].id, entry_date: day, chanted: 1, source: "coordinator", marked_by: c1.id });
+  await s.upsertChant({ person_id: ppl[1].id, entry_date: day, chanted: 1, source: "self", marked_by: null });
   await s.upsertChant({ person_id: ppl[2].id, entry_date: day, chanted: 0, source: "coordinator", marked_by: c1.id });
   await s.logTouchForPersonOnDate(ppl[2].id, day, c1.id);
 
   const body = await (await post(s, await login(s, "hk"), "/api/hk/daily-report", { date: day })).json();
   assert.equal(body.totals.members_chanted, 2);
-  assert.equal(body.totals.self_marked, 1);
-  assert.equal(body.totals.rounds, 20);
   assert.equal(body.totals.follow_ups, 1);
   assert.equal(body.totals.coords_total, 2);
   assert.equal(body.totals.coords_active, 1);
