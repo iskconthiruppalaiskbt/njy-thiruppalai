@@ -3179,6 +3179,7 @@ function renderDailyReport(view) {
   );
   genBtn.addEventListener("click", async () => {
     if (!dateIn.value) return;
+    if (!confirm(`${t("confirm.generate_report_prefix")}${dateIn.value}${t("confirm.generate_report_suffix")}`)) return;
     genBtn.disabled = true;
     out.replaceChildren(loadingLine(t("report.loading")));
     try {

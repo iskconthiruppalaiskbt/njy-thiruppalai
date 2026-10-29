@@ -1138,6 +1138,8 @@ const DICT = {
     "report.pts": "pts",
     "report.download_csv": "Download CSV",
     "report.print": "Print",
+    "confirm.generate_report_prefix": "Generate the report for ",
+    "confirm.generate_report_suffix": "?\n\nThis reads from the database. Tap OK to generate, or Cancel to go back.",
   },
 
   ta: {
@@ -2275,6 +2277,8 @@ const DICT = {
     "report.pts": "புள்ளிகள்",
     "report.download_csv": "CSV பதிவிறக்கு",
     "report.print": "அச்சிடு",
+    "confirm.generate_report_prefix": "தேதி ",
+    "confirm.generate_report_suffix": " க்கான அறிக்கையை உருவாக்கவா?\n\nஇது தரவுத்தளத்திலிருந்து படிக்கும். உருவாக்க OK அழுத்தவும், திரும்ப Cancel அழுத்தவும்.",
   },
 };
 
