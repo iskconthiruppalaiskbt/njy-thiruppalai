@@ -1378,3 +1378,18 @@ a[download]:hover {
   .members-table thead th { padding: .35rem .4rem; font-size: .68rem; }
   .members-table tbody td { padding: .3rem .4rem; height: 2rem; }
 }
+
+/* --------- Daily Report (Director) --------- */
+.report-controls { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin: .75rem 0 1rem; }
+.report-controls input[type="date"] { padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.report-actions { display: flex; gap: .5rem; margin: .75rem 0; }
+.report h3 { margin: 1.25rem 0 .5rem; }
+.report-table-wrap { overflow-x: auto; }
+.report-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.report-table th, .report-table td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.report-table th { color: var(--muted); font-weight: 500; }
+.report-table tr.idle td { color: var(--muted); }
+@media print {
+  .topbar, .nav, .lb-side, .lb-strip, .help-banner, .report-controls, .report-actions { display: none !important; }
+  .report-table-wrap { overflow: visible; }
+}

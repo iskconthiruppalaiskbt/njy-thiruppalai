@@ -793,6 +793,7 @@ function renderNav() {
     { href: "#/sadhana",   label: t("nav.sadhana"),  when: () => can("sadhana_chart") && SADHANA_ROLES.includes(ME.role) },
     { href: "#/bv",        label: t("nav.bv"),       when: () => can("bv_structure_editor") && BV_ROLES.includes(ME.role) },
     { href: "#/janmashtami", label: t("nav.janmashtami"), when: () => can("janmashtami_view_page") && ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
+    { href: "#/report",      label: t("nav.daily_report"), when: () => ME.role === "hk_leader" },
     { href: "#/duplicates",  label: t("dup.nav_link"),    when: () => ME.role === "hk_leader",
       badge: () => window._njyPendingDupCount || 0 },
     { href: "#/profile",     label: t("nav.profile"), when: () => ["njy_coordinator","njy_leader","hk_leader"].includes(ME.role) },
@@ -881,6 +882,7 @@ function renderRoute() {
     "members":  () => renderMembers(view),
     "duplicates": () => renderDuplicateQueue(view),
     "group-report": () => renderGroupReport(arg),
+    "report":   renderDailyReport,
   };
   const fn = routes[path] || renderCoordRoll;
   fn(view);
@@ -3154,6 +3156,138 @@ function showTeamToast(text) {
     if (_njyToastEl === box) _njyToastEl = null;
     box.remove();
   }, 6000);
+}
+
+// -------------------------------------------------------- Daily Report ---
+// Director-only. Nothing is fetched until Generate is tapped: each
+// report costs D1 row reads (a past day is saved server-side after its
+// first generation, so re-opening it is ~1 row).
+function renderDailyReport(view) {
+  if (ME.role !== "hk_leader") {
+    view.append(el("p", { class: "error" }, t("report.director_only")));
+    return;
+  }
+  view.append(el("h2", { class: "section" }, t("report.title")));
+  view.append(helpBanner(t("report.help")));
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  const dateIn = el("input", { type: "date", value: today, max: today });
+  const genBtn = el("button", { class: "primary", type: "button" }, t("report.generate"));
+  const out = el("div");
+  view.append(
+    el("div", { class: "report-controls" }, el("label", {}, t("report.pick_date"), " ", dateIn), genBtn),
+    out,
+  );
+  genBtn.addEventListener("click", async () => {
+    if (!dateIn.value) return;
+    genBtn.disabled = true;
+    out.replaceChildren(loadingLine(t("report.loading")));
+    try {
+      const r = await api("/api/hk/daily-report", {
+        method: "POST", body: JSON.stringify({ date: dateIn.value }),
+      });
+      out.replaceChildren(dailyReportView(r));
+    } catch (err) {
+      out.replaceChildren(el("p", { class: "error" }, err.message));
+    } finally {
+      genBtn.disabled = false;
+    }
+  });
+}
+
+function dailyReportView(r) {
+  const T = r.totals;
+  const fu = (n) => (r.follow_ups_tracked ? n : "—");
+  const cell = (n, k) => el("div", { class: "cell" },
+    el("div", { class: "n" }, String(n)), el("div", { class: "k" }, k));
+  const generated = new Date(r.meta.generated_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+
+  const csvBtn = el("button", { class: "btn", type: "button" }, t("report.download_csv"));
+  csvBtn.addEventListener("click", () => downloadCsvText(`njy-daily-report-${r.date}.csv`, dailyReportCsv(r)));
+  const printBtn = el("button", { class: "btn", type: "button" }, t("report.print"));
+  printBtn.addEventListener("click", () => window.print());
+
+  const wrap = el("div", { class: "report" },
+    el("p", { class: "hint" },
+      `${t("report.for_date")} ${r.date} · `
+      + `${r.meta.from_cache ? t("report.saved_copy") : t("report.fresh")} ${generated} · `
+      + `${t("report.reports_today")} ${r.meta.reports_today}`),
+    el("div", { class: "tally" },
+      cell(T.members_chanted, t("report.members_chanted")),
+      cell(T.rounds, t("report.rounds")),
+      cell(`${T.coords_active} / ${T.coords_total}`, t("report.coords_active")),
+      cell(fu(T.follow_ups), t("report.follow_ups")),
+    ),
+    el("div", { class: "tally" },
+      cell(`${T.leaders_active} / ${T.leaders_total}`, t("report.leaders_active")),
+      cell(T.self_marked, t("report.self_marked")),
+      cell(T.new_daily, t("report.new_daily")),
+      cell(T.dropped, t("report.dropped")),
+    ),
+    r.follow_ups_tracked ? null : el("p", { class: "hint" }, t("report.no_follow_up_history")),
+    el("p", { class: "hint" }, t("report.attribution_note")),
+    el("div", { class: "report-actions" }, csvBtn, printBtn),
+  );
+  if (r.events && r.events.length) {
+    wrap.append(el("h3", {}, t("report.events")),
+      el("ul", { class: "list" }, r.events.map(e =>
+        el("li", {}, el("strong", {}, e.name), ` · ${e.attended} ${t("report.attended")}`))));
+  }
+  wrap.append(
+    el("h3", {}, t("report.by_leader")),
+    reportTable(
+      [t("report.col_leader"), t("report.col_coords_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions")],
+      r.per_leader.map(l => ({ active: l.active, cells: [
+        l.name, `${l.coords_active} / ${l.coords_total}`, l.chants, fu(l.follow_ups),
+        `${l.leader_actions} (${l.leader_points} ${t("report.pts")})`] }))),
+    el("h3", {}, t("report.by_coord")),
+    reportTable(
+      [t("report.col_coord"), t("report.col_leader"), t("report.col_chants"), t("report.col_rounds"), t("report.col_follow_ups")],
+      r.per_coord.map(c => ({ active: c.active, cells: [
+        c.name, c.leader_name || "—", c.chants, c.rounds, fu(c.follow_ups)] }))),
+  );
+  return wrap;
+}
+
+function reportTable(headers, rows) {
+  return el("div", { class: "report-table-wrap" },
+    el("table", { class: "report-table" },
+      el("thead", {}, el("tr", {}, headers.map(h => el("th", {}, h)))),
+      el("tbody", {}, rows.map(r =>
+        el("tr", { class: r.active ? "" : "idle" }, r.cells.map(c => el("td", {}, String(c))))))));
+}
+
+function dailyReportCsv(r) {
+  const T = r.totals;
+  const line = (...cells) => cells.map(csvEscape).join(",");
+  const fu = (n) => (r.follow_ups_tracked ? n : "");
+  const lines = [
+    line(t("report.title"), r.date),
+    line(t("report.members_chanted"), T.members_chanted),
+    line(t("report.rounds"), T.rounds),
+    line(t("report.self_marked"), T.self_marked),
+    line(t("report.coords_active"), `${T.coords_active} / ${T.coords_total}`),
+    line(t("report.leaders_active"), `${T.leaders_active} / ${T.leaders_total}`),
+    line(t("report.follow_ups"), fu(T.follow_ups)),
+    line(t("report.new_daily"), T.new_daily),
+    line(t("report.dropped"), T.dropped),
+    "",
+    line(t("report.col_leader"), t("report.col_coords_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions"), t("report.pts")),
+    ...r.per_leader.map(l => line(l.name, `${l.coords_active} / ${l.coords_total}`, l.chants, fu(l.follow_ups), l.leader_actions, l.leader_points)),
+    "",
+    line(t("report.col_coord"), t("report.col_leader"), t("report.col_chants"), t("report.col_rounds"), t("report.col_follow_ups")),
+    ...r.per_coord.map(c => line(c.name, c.leader_name, c.chants, c.rounds, fu(c.follow_ups))),
+  ];
+  // BOM so Excel opens Tamil names correctly (same as rollToCsv).
+  return "﻿" + lines.join("\r\n") + "\r\n";
+}
+
+function downloadCsvText(filename, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8;" }));
+  const a = el("a", { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 // -------------------------------------------------------- HK dashboard ---
