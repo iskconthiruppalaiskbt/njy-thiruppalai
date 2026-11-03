@@ -1389,7 +1389,10 @@ a[download]:hover {
 .report-table th, .report-table td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .report-table th { color: var(--muted); font-weight: 500; }
 .report-table tr.idle td { color: var(--muted); }
+.report-table tr.group td { font-weight: 600; background: var(--line); padding-top: .55rem; }
+.report-sort { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; margin: 1rem 0 .25rem; font-size: .9rem; }
+.report-sort select { padding: .35rem .5rem; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
 @media print {
-  .topbar, .nav, .lb-side, .lb-strip, .help-banner, .report-controls, .report-actions { display: none !important; }
+  .topbar, .nav, .lb-side, .lb-strip, .help-banner, .report-controls, .report-actions, .report-sort { display: none !important; }
   .report-table-wrap { overflow: visible; }
 }

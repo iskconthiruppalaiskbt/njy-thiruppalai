@@ -3202,8 +3202,23 @@ function dailyReportView(r) {
     el("div", { class: "n" }, String(n)), el("div", { class: "k" }, k));
   const generated = new Date(r.meta.generated_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
+  // Sort / filter / group run on the payload already in hand: zero D1
+  // reads, and they work the same on a saved past-day copy.
+  const opt = (v, k, sel) => el("option", { value: v, selected: v === sel ? true : undefined }, t(k));
+  const sortSel = el("select", {},
+    opt("most", "report.sort_most", "most"), opt("least", "report.sort_least", "most"),
+    opt("name", "report.sort_name", "most"));
+  const showSel = el("select", {},
+    opt("all", "report.show_all", "all"), opt("active", "report.show_active", "all"),
+    opt("idle", "report.show_idle", "all"));
+  const groupChk = el("input", { type: "checkbox", id: "report-group", checked: true });
+  const tablesBox = el("div");
+  const state = () => ({ sort: sortSel.value, show: showSel.value, group: groupChk.checked });
+  const drawTables = () => tablesBox.replaceChildren(...reportTables(r, reportRows(r, state()), fu));
+  [sortSel, showSel, groupChk].forEach(c => c.addEventListener("change", drawTables));
+
   const csvBtn = el("button", { class: "btn", type: "button" }, t("report.download_csv"));
-  csvBtn.addEventListener("click", () => downloadCsvText(`njy-daily-report-${r.date}.csv`, dailyReportCsv(r)));
+  csvBtn.addEventListener("click", () => downloadCsvText(`njy-daily-report-${r.date}.csv`, dailyReportCsv(r, reportRows(r, state()))));
   const printBtn = el("button", { class: "btn", type: "button" }, t("report.print"));
   printBtn.addEventListener("click", () => window.print());
 
@@ -3232,30 +3247,87 @@ function dailyReportView(r) {
         el("li", {}, el("strong", {}, e.name), ` · ${e.attended} ${t("report.attended")}`))));
   }
   wrap.append(
-    el("h3", {}, t("report.by_leader")),
-    reportTable(
-      [t("report.col_leader"), t("report.col_coords_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions")],
-      r.per_leader.map(l => ({ active: l.active, cells: [
-        l.name, `${l.coords_active} / ${l.coords_total}`, l.chants, fu(l.follow_ups),
-        `${l.leader_actions} (${l.leader_points} ${t("report.pts")})`] }))),
-    el("h3", {}, t("report.by_coord")),
-    reportTable(
-      [t("report.col_coord"), t("report.col_leader"), t("report.col_chants"), t("report.col_follow_ups")],
-      r.per_coord.map(c => ({ active: c.active, cells: [
-        c.name, c.leader_name || "—", c.chants, fu(c.follow_ups)] }))),
+    el("div", { class: "report-sort" },
+      el("label", {}, t("report.sort_by"), " ", sortSel),
+      el("label", {}, t("report.show"), " ", showSel),
+      el("label", {}, groupChk, " ", t("report.group_by_leader"))),
+    tablesBox,
   );
+  drawTables();
   return wrap;
+}
+
+// Applies the Director's sort/show/group choice to the report rows.
+// Returns { leaders, coordGroups: [{ leader, rows }] }; when not
+// grouping there is one group with leader = null.
+function reportRows(r, { sort, show, group }) {
+  const fuOn = r.follow_ups_tracked;
+  const score = (x) => x.chants + (fuOn ? x.follow_ups : 0) + (x.leader_actions || 0);
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  const cmp = sort === "least" ? (a, b) => score(a) - score(b) || byName(a, b)
+    : sort === "name" ? byName
+    : (a, b) => score(b) - score(a) || byName(a, b);
+  const keep = (x) => show === "active" ? x.active : show === "idle" ? !x.active : true;
+
+  // Leaders are ordered by the same sort even when hidden by the filter,
+  // so coordinator groups follow the leader table's order.
+  const allLeaders = r.per_leader.slice().sort(cmp);
+  const coords = r.per_coord.filter(keep).sort(cmp);
+  let coordGroups;
+  if (group) {
+    const byLeader = new Map();
+    for (const c of coords) {
+      const k = c.leader_id || "";
+      if (!byLeader.has(k)) byLeader.set(k, []);
+      byLeader.get(k).push(c);
+    }
+    coordGroups = allLeaders.filter(l => byLeader.has(l.user_id))
+      .map(l => ({ leader: l, rows: byLeader.get(l.user_id) }));
+    const known = new Set(allLeaders.map(l => l.user_id));
+    const orphans = coords.filter(c => !known.has(c.leader_id || ""));
+    if (orphans.length) coordGroups.push({ leader: { name: t("report.no_leader") }, rows: orphans });
+  } else {
+    coordGroups = [{ leader: null, rows: coords }];
+  }
+  return { leaders: allLeaders.filter(keep), coordGroups };
+}
+
+function reportTables(r, v, fu) {
+  const coordRow = (c) => ({ active: c.active, cells: [
+    c.name, c.leader_name || "—", c.chants, fu(c.follow_ups)] });
+  const coordRows = v.coordGroups.flatMap(g => g.leader
+    ? [{ group: g.leader.coords_total != null
+          ? `${g.leader.name} · ${g.leader.coords_active} / ${g.leader.coords_total} ${t("report.group_active")}`
+          : g.leader.name },
+       ...g.rows.map(coordRow)]
+    : g.rows.map(coordRow));
+  return [
+    el("h3", {}, t("report.by_leader")),
+    v.leaders.length ? reportTable(
+      [t("report.col_leader"), t("report.col_coords_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions")],
+      v.leaders.map(l => ({ active: l.active, cells: [
+        l.name, `${l.coords_active} / ${l.coords_total}`, l.chants, fu(l.follow_ups),
+        `${l.leader_actions} (${l.leader_points} ${t("report.pts")})`] })))
+      : el("p", { class: "hint" }, t("report.none_match")),
+    el("h3", {}, t("report.by_coord")),
+    coordRows.length ? reportTable(
+      [t("report.col_coord"), t("report.col_leader"), t("report.col_chants"), t("report.col_follow_ups")],
+      coordRows)
+      : el("p", { class: "hint" }, t("report.none_match")),
+  ];
 }
 
 function reportTable(headers, rows) {
   return el("div", { class: "report-table-wrap" },
     el("table", { class: "report-table" },
       el("thead", {}, el("tr", {}, headers.map(h => el("th", {}, h)))),
-      el("tbody", {}, rows.map(r =>
-        el("tr", { class: r.active ? "" : "idle" }, r.cells.map(c => el("td", {}, String(c))))))));
+      el("tbody", {}, rows.map(r => r.group != null
+        ? el("tr", { class: "group" }, el("td", { colspan: headers.length }, r.group))
+        : el("tr", { class: r.active ? "" : "idle" }, r.cells.map(c => el("td", {}, String(c))))))));
 }
 
-function dailyReportCsv(r) {
+// v = reportRows(...) so the CSV matches what's on screen.
+function dailyReportCsv(r, v) {
   const T = r.totals;
   const line = (...cells) => cells.map(csvEscape).join(",");
   const fu = (n) => (r.follow_ups_tracked ? n : "");
@@ -3269,10 +3341,10 @@ function dailyReportCsv(r) {
     line(t("report.dropped"), T.dropped),
     "",
     line(t("report.col_leader"), t("report.col_coords_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions"), t("report.pts")),
-    ...r.per_leader.map(l => line(l.name, `${l.coords_active} / ${l.coords_total}`, l.chants, fu(l.follow_ups), l.leader_actions, l.leader_points)),
+    ...v.leaders.map(l => line(l.name, `${l.coords_active} / ${l.coords_total}`, l.chants, fu(l.follow_ups), l.leader_actions, l.leader_points)),
     "",
     line(t("report.col_coord"), t("report.col_leader"), t("report.col_chants"), t("report.col_follow_ups")),
-    ...r.per_coord.map(c => line(c.name, c.leader_name, c.chants, fu(c.follow_ups))),
+    ...v.coordGroups.flatMap(g => g.rows).map(c => line(c.name, c.leader_name, c.chants, fu(c.follow_ups))),
   ];
   // BOM so Excel opens Tamil names correctly (same as rollToCsv).
   return "﻿" + lines.join("\r\n") + "\r\n";
