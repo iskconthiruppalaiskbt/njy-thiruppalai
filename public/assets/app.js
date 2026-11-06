@@ -3196,6 +3196,10 @@ function renderDailyReport(view) {
 }
 
 function dailyReportView(r) {
+  // Past days saved before 2026-11-06 counted only a leader's own actions
+  // as "active"; recompute so a leader whose coords worked counts too.
+  for (const l of r.per_leader) l.active = l.active || l.coords_active > 0;
+  r.totals.leaders_active = r.per_leader.filter(l => l.active).length;
   const T = r.totals;
   const fu = (n) => (r.follow_ups_tracked ? n : "—");
   const cell = (n, k) => el("div", { class: "cell" },

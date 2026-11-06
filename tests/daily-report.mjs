@@ -73,6 +73,9 @@ test("daily report: totals, per-coord and per-leader attribution", async () => {
   assert.deepEqual([one.chants, one.follow_ups, one.leader_name], [1, 1, "Leader A"]);
   const la = body.per_leader.find(r => r.user_id === leader.id);
   assert.deepEqual([la.coords_total, la.coords_active, la.chants], [2, 1, 1]);
+  // Leader did nothing personally, but a coord did: the leader counts as active.
+  assert.equal(la.active, true);
+  assert.equal(body.totals.leaders_active, 1);
 });
 
 test("daily report: past day is saved, re-read from cache, and every click logged", async () => {
