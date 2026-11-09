@@ -265,6 +265,12 @@ function userGender(u) {
 
 let ME = null, GATES = {};
 
+// Members loaded from a bulk list (people.source, schema 0026) get a
+// small badge so coords can tell them from the original data.
+function visitorBadge() {
+  return el("span", { class: "visitor-badge" }, t("members.visitor_badge"));
+}
+
 // -------------------------------------- route token (BUG 1+2) ------
 // Global monotonic token bumped by every hashchange-driven renderRoute().
 // Any render function that does `await api(...)` before painting should
@@ -2473,6 +2479,7 @@ function rollList(roll, editable) {
 
     const name = el("div", { class: "name" });
     name.innerHTML = esc(r.name) + `<span class="phone">${esc(r.phone || "")}</span>`;
+    if (r.source === "visitors") name.append(visitorBadge());
 
     // Lifecycle status dropdown. Phase 2 pickable: Member, Daily,
     // Unreachable, Uninterested. NJY 1-3 / Manjari / BV Member stay
@@ -3496,6 +3503,7 @@ function rollListManageable(roll, currentOwnerUserId) {
 
     const name = el("div", { class: "name" });
     name.innerHTML = esc(r.name) + `<span class="phone">${esc(r.phone || "")}</span>`;
+    if (r.source === "visitors") name.append(visitorBadge());
 
     const lifecycle = el("select", { class: "lifecycle", "data-status": r.status || "chanter" },
       ...LIFECYCLE.map(s => el("option", { value: s, selected: r.status === s ? true : undefined }, lifecycleLabel(s))),
@@ -4907,6 +4915,7 @@ async function renderMembers(view) {
           const badge = (bgKey, label) => el("span", {
             style: `margin-left:.4rem;${bgKey};border-radius:10px;padding:.1rem .45rem;font-size:.68rem;font-weight:600;vertical-align:middle`,
           }, label);
+          if (p.source === "visitors") nameCell.append(visitorBadge());
           if (p.not_interested) {
             nameCell.append(badge(
               "background:#fbeaea;color:#991B1B;border:1px solid #f0c4c4",
