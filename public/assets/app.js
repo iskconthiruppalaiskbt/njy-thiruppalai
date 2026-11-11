@@ -267,6 +267,9 @@ let ME = null, GATES = {};
 
 // Members loaded from a bulk list (people.source, schema 0026) get a
 // small badge so coords can tell them from the original data.
+// 'skbt_visitor' = Sri Krishna Balaram Temple visitors list; 'visitors'
+// is the earlier tag kept for safety.
+function isVisitor(src) { return src === "skbt_visitor" || src === "visitors"; }
 function visitorBadge() {
   return el("span", { class: "visitor-badge" }, t("members.visitor_badge"));
 }
@@ -2479,7 +2482,7 @@ function rollList(roll, editable) {
 
     const name = el("div", { class: "name" });
     name.innerHTML = esc(r.name) + `<span class="phone">${esc(r.phone || "")}</span>`;
-    if (r.source === "visitors") name.append(visitorBadge());
+    if (isVisitor(r.source)) name.append(visitorBadge());
 
     // Lifecycle status dropdown. Phase 2 pickable: Member, Daily,
     // Unreachable, Uninterested. NJY 1-3 / Manjari / BV Member stay
@@ -3503,7 +3506,7 @@ function rollListManageable(roll, currentOwnerUserId) {
 
     const name = el("div", { class: "name" });
     name.innerHTML = esc(r.name) + `<span class="phone">${esc(r.phone || "")}</span>`;
-    if (r.source === "visitors") name.append(visitorBadge());
+    if (isVisitor(r.source)) name.append(visitorBadge());
 
     const lifecycle = el("select", { class: "lifecycle", "data-status": r.status || "chanter" },
       ...LIFECYCLE.map(s => el("option", { value: s, selected: r.status === s ? true : undefined }, lifecycleLabel(s))),
@@ -4675,14 +4678,7 @@ async function renderMembers(view) {
         .replace("{n}", String(currentlyAssigned));
       return;
     }
-    // Proportionally split remaining into pincoded / no-pincode using
-    // the same 17 : 23 ratio the full-40 case uses. Round so pin + nopin
-    // == remaining exactly (no off-by-one slot left on the floor).
     const CAP = remaining;
-    const PIN_TARGET = Math.round(remaining * 17 / 40);
-    const NOPIN_TARGET = remaining - PIN_TARGET;
-    const coordPin = String(coord.pincode || "");
-    const coordPin3 = coordPin.slice(0, 3);
     // Never pick any blocked status (not-interested / dropped /
     // unreachable / uninterested) — all four are do-not-reassign flags
     // and must stay excluded from every automated selection.
@@ -4690,6 +4686,43 @@ async function renderMembers(view) {
       chanterGender(p) === coord.gender
       && !p.not_interested
       && !BLOCKED_STATUSES.has(p.status));
+    // Which pool first: a coord with no members, or whose roll is mostly
+    // SKBT visitors, fills from visitors; everyone else tops up from the
+    // regular pool and only falls back to visitors when it runs out of
+    // their gender. Keeps each roll one kind (different phone script).
+    const roll = people.filter(p => p.assigned_to_user_id === coord.id);
+    const rollVisitors = roll.filter(p => isVisitor(p.source)).length;
+    const visitorsFirst = roll.length === 0 || rollVisitors * 2 > roll.length;
+    const vPool = matches.filter(p => isVisitor(p.source));
+    const oPool = matches.filter(p => !isVisitor(p.source));
+    const first = pickMix(visitorsFirst ? vPool : oPool, CAP);
+    const second = pickMix(visitorsFirst ? oPool : vPool, CAP - first.length);
+    const picked = [...first, ...second];
+    selected.clear();
+    for (const p of picked) selected.add(p.id);
+    const nV = picked.filter(p => isVisitor(p.source)).length;
+    // Message shows BOTH the pick count AND the coord's current roll
+    // size, so Director sees why we picked (say) 13 and not 40.
+    autoFillMsg.textContent = `${t("members.auto_fill_prefix")}${picked.length}${t("members.auto_fill_suffix")} `
+      + t("members.auto_fill_topup_detail")
+        .replace("{current}", String(currentlyAssigned))
+        .replace("{target}", String(TARGET_ROLL))
+      + " " + t("members.auto_fill_source")
+        .replace("{v}", String(nV))
+        .replace("{o}", String(picked.length - nV));
+    renderAll();
+    applyGenderHighlight();
+    refreshBulkBar();
+  });
+
+  // 17 : 23 pincoded / no-pincode mix from one pool, n picks at most.
+  function pickMix(pool, n) {
+    if (n <= 0 || !pool.length) return [];
+    const PIN_TARGET = Math.round(n * 17 / 40);
+    const NOPIN_TARGET = n - PIN_TARGET;
+    const coord = coordById.get(bulkSelect.value);
+    const coordPin = String((coord && coord.pincode) || "");
+    const coordPin3 = coordPin.slice(0, 3);
     const shuffle = (arr) => {
       const a = arr.slice();
       for (let i = a.length - 1; i > 0; i--) {
@@ -4699,8 +4732,8 @@ async function renderMembers(view) {
       return a;
     };
     // Split by pincode presence
-    const pinced = matches.filter(p => String(p.pincode || "").trim());
-    const noPin  = matches.filter(p => !String(p.pincode || "").trim());
+    const pinced = pool.filter(p => String(p.pincode || "").trim());
+    const noPin  = pool.filter(p => !String(p.pincode || "").trim());
     // For pincoded: three tier buckets, shuffled inside each tier
     const tier1 = shuffle(pinced.filter(p => coordPin && String(p.pincode) === coordPin));
     const tier2 = shuffle(pinced.filter(p => coordPin3 && String(p.pincode).startsWith(coordPin3) && String(p.pincode) !== coordPin));
@@ -4718,19 +4751,8 @@ async function renderMembers(view) {
       const need = NOPIN_TARGET - noPinPicks.length;
       pinPicks = pincedOrdered.slice(0, PIN_TARGET + need);
     }
-    const picked = [...pinPicks, ...noPinPicks].slice(0, CAP);
-    selected.clear();
-    for (const p of picked) selected.add(p.id);
-    // Message shows BOTH the pick count AND the coord's current roll
-    // size, so Director sees why we picked (say) 13 and not 40.
-    autoFillMsg.textContent = `${t("members.auto_fill_prefix")}${picked.length}${t("members.auto_fill_suffix")} `
-      + t("members.auto_fill_topup_detail")
-        .replace("{current}", String(currentlyAssigned))
-        .replace("{target}", String(TARGET_ROLL));
-    renderAll();
-    applyGenderHighlight();
-    refreshBulkBar();
-  });
+    return [...pinPicks, ...noPinPicks].slice(0, n);
+  }
 
   bulkBtn.addEventListener("click", async () => {
     const userId = bulkSelect.value;
@@ -4915,7 +4937,7 @@ async function renderMembers(view) {
           const badge = (bgKey, label) => el("span", {
             style: `margin-left:.4rem;${bgKey};border-radius:10px;padding:.1rem .45rem;font-size:.68rem;font-weight:600;vertical-align:middle`,
           }, label);
-          if (p.source === "visitors") nameCell.append(visitorBadge());
+          if (isVisitor(p.source)) nameCell.append(visitorBadge());
           if (p.not_interested) {
             nameCell.append(badge(
               "background:#fbeaea;color:#991B1B;border:1px solid #f0c4c4",
