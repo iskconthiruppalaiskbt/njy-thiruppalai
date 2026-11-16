@@ -4,6 +4,7 @@ import { route } from "../lib/handlers.js";
 import { memoryStore } from "../lib/store-memory.js";
 import { hashPassword } from "../lib/auth.js";
 import { todayInTz } from "../lib/ids.js";
+import { scoreOverallForCoord } from "../lib/leaderboard.js";
 
 const SECRET = "test-secret-for-range-report";
 
@@ -75,6 +76,10 @@ test("range report: days active, totals, never-active coord, today included", as
   const la = body.per_leader.find(r => r.user_id === leader.id);
   assert.deepEqual([la.coords_total, la.coords_active, la.chants, la.days_active, la.active], [2, 1, 4, 3, true]);
   assert.deepEqual([body.totals.coords_active, body.totals.coords_total, body.totals.leaders_active], [1, 2, 1]);
+  // Overall score = the Overall leaderboard's number for the same person.
+  assert.equal(one.overall_pts, (await scoreOverallForCoord(s, c1)).pts);
+  assert.ok(one.overall_pts > 0);
+  assert.equal(typeof la.overall_pts, "number");
 
   // Second run: every past day is now saved, nothing recomputed.
   const again = await (await post(s, hk, "/api/hk/range-report", { from: daysAgo(5), to: daysAgo(1) })).json();

@@ -3330,7 +3330,7 @@ function rangeReportView(r) {
   const opt = (v, k, sel) => el("option", { value: v, selected: v === sel ? true : undefined }, t(k));
   const sortSel = el("select", {},
     opt("most", "report.sort_most", "most"), opt("least", "report.sort_least", "most"),
-    opt("name", "report.sort_name", "most"));
+    opt("overall", "report.sort_overall", "most"), opt("name", "report.sort_name", "most"));
   const showSel = el("select", {},
     opt("all", "report.show_all", "all"), opt("active", "report.show_active", "all"),
     opt("idle", "report.show_idle", "all"));
@@ -3362,6 +3362,7 @@ function rangeReportView(r) {
     ),
     r.follow_ups_tracked ? null : el("p", { class: "hint" }, t("report.range_follow_up_note")),
     el("p", { class: "hint" }, t("report.range_note")),
+    el("p", { class: "hint" }, t("report.overall_note")),
     el("div", { class: "report-actions" }, csvBtn, printBtn),
     el("div", { class: "report-sort" },
       el("label", {}, t("report.sort_by"), " ", sortSel),
@@ -3387,11 +3388,11 @@ function rangeReportCsv(r, v) {
     line(t("report.new_daily"), T.new_daily),
     line(t("report.dropped"), T.dropped),
     "",
-    line(t("report.col_leader"), t("report.col_coords_active"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions"), t("report.pts"), t("report.col_last_active")),
-    ...v.leaders.map(l => line(l.name, `${l.coords_active} / ${l.coords_total}`, l.days_active, l.chants, l.follow_ups, l.leader_actions, l.leader_points, last(l))),
+    line(t("report.col_leader"), t("report.col_coords_active"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions"), t("report.pts"), t("report.col_overall"), t("report.col_last_active")),
+    ...v.leaders.map(l => line(l.name, `${l.coords_active} / ${l.coords_total}`, l.days_active, l.chants, l.follow_ups, l.leader_actions, l.leader_points, l.overall_pts ?? "", last(l))),
     "",
-    line(t("report.col_coord"), t("report.col_leader"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_last_active")),
-    ...v.coordGroups.flatMap(g => g.rows).map(c => line(c.name, c.leader_name, c.days_active, c.chants, c.follow_ups, last(c))),
+    line(t("report.col_coord"), t("report.col_leader"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_overall"), t("report.col_last_active")),
+    ...v.coordGroups.flatMap(g => g.rows).map(c => line(c.name, c.leader_name, c.days_active, c.chants, c.follow_ups, c.overall_pts ?? "", last(c))),
   ];
   return "\ufeff" + lines.join("\r\n") + "\r\n";
 }
@@ -3405,6 +3406,7 @@ function reportRows(r, { sort, show, group }) {
   const byName = (a, b) => a.name.localeCompare(b.name);
   const cmp = sort === "least" ? (a, b) => score(a) - score(b) || byName(a, b)
     : sort === "name" ? byName
+    : sort === "overall" ? (a, b) => (b.overall_pts || 0) - (a.overall_pts || 0) || byName(a, b)
     : (a, b) => score(b) - score(a) || byName(a, b);
   const keep = (x) => show === "active" ? x.active : show === "idle" ? !x.active : true;
 
@@ -3435,8 +3437,9 @@ function reportRows(r, { sort, show, group }) {
 function reportTables(r, v, fu, days) {
   const period = days != null;
   const last = (x) => x.last_active || t("report.never");
+  const ov = (x) => (x.overall_pts == null ? "—" : x.overall_pts);
   const coordRow = (c) => ({ active: c.active, cells: period
-    ? [c.name, c.leader_name || "—", `${c.days_active} / ${days}`, c.chants, fu(c.follow_ups), last(c)]
+    ? [c.name, c.leader_name || "—", `${c.days_active} / ${days}`, c.chants, fu(c.follow_ups), ov(c), last(c)]
     : [c.name, c.leader_name || "—", c.chants, fu(c.follow_ups)] });
   const coordRows = v.coordGroups.flatMap(g => g.leader
     ? [{ group: g.leader.coords_total != null
@@ -3445,15 +3448,15 @@ function reportTables(r, v, fu, days) {
        ...g.rows.map(coordRow)]
     : g.rows.map(coordRow));
   const leaderHead = period
-    ? [t("report.col_leader"), t("report.col_coords_active"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions"), t("report.col_last_active")]
+    ? [t("report.col_leader"), t("report.col_coords_active"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions"), t("report.col_overall"), t("report.col_last_active")]
     : [t("report.col_leader"), t("report.col_coords_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions")];
   const leaderRow = (l) => ({ active: l.active, cells: period
     ? [l.name, `${l.coords_active} / ${l.coords_total}`, `${l.days_active} / ${days}`, l.chants, fu(l.follow_ups),
-       `${l.leader_actions} (${l.leader_points} ${t("report.pts")})`, last(l)]
+       `${l.leader_actions} (${l.leader_points} ${t("report.pts")})`, ov(l), last(l)]
     : [l.name, `${l.coords_active} / ${l.coords_total}`, l.chants, fu(l.follow_ups),
        `${l.leader_actions} (${l.leader_points} ${t("report.pts")})`] });
   const coordHead = period
-    ? [t("report.col_coord"), t("report.col_leader"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_last_active")]
+    ? [t("report.col_coord"), t("report.col_leader"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_overall"), t("report.col_last_active")]
     : [t("report.col_coord"), t("report.col_leader"), t("report.col_chants"), t("report.col_follow_ups")];
   return [
     el("h3", {}, t("report.by_leader")),
