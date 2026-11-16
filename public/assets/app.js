@@ -3180,23 +3180,71 @@ function renderDailyReport(view) {
   view.append(el("h2", { class: "section" }, t("report.title")));
   view.append(helpBanner(t("report.help")));
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  const NJY_START = "2026-08-18";
+
+  // Mode switch: one day (as before) or a period.
+  let mode = "day";
+  const dayBtn = el("button", { class: "btn primary", type: "button" }, t("report.mode_day"));
+  const rangeBtn = el("button", { class: "btn", type: "button" }, t("report.mode_range"));
+
   const dateIn = el("input", { type: "date", value: today, max: today });
+  const fromIn = el("input", { type: "date", value: today.slice(0, 8) + "01", min: NJY_START, max: today });
+  const toIn = el("input", { type: "date", value: today, min: NJY_START, max: today });
+  const preset = (k, from, to) => {
+    const b = el("button", { class: "mini-btn", type: "button" }, t(k));
+    b.addEventListener("click", () => { fromIn.value = from < NJY_START ? NJY_START : from; toIn.value = to; });
+    return b;
+  };
+  const dow = (new Date(today + "T00:00:00Z").getUTCDay() + 6) % 7;   // Monday = 0
+  const monthStart = today.slice(0, 8) + "01";
+  const lastMonthEnd = addDays(monthStart, -1);
   const genBtn = el("button", { class: "primary", type: "button" }, t("report.generate"));
+  const dayBox = el("label", {}, t("report.pick_date"), " ", dateIn);
+  const rangeBox = el("span", { class: "report-range", style: "display:none" },
+    el("label", {}, t("report.from"), " ", fromIn),
+    el("label", {}, t("report.to"), " ", toIn),
+    el("span", { class: "report-presets" },
+      preset("report.preset_week", addDays(today, -dow), today),
+      preset("report.preset_month", monthStart, today),
+      preset("report.preset_last_month", lastMonthEnd.slice(0, 8) + "01", lastMonthEnd),
+      preset("report.preset_start", NJY_START, today)));
   const out = el("div");
+  const setMode = (m) => {
+    mode = m;
+    dayBtn.classList.toggle("primary", m === "day");
+    rangeBtn.classList.toggle("primary", m === "range");
+    dayBox.style.display = m === "day" ? "" : "none";
+    rangeBox.style.display = m === "range" ? "" : "none";
+    out.replaceChildren();
+  };
+  dayBtn.addEventListener("click", () => setMode("day"));
+  rangeBtn.addEventListener("click", () => setMode("range"));
   view.append(
-    el("div", { class: "report-controls" }, el("label", {}, t("report.pick_date"), " ", dateIn), genBtn),
+    el("div", { class: "report-controls" }, dayBtn, rangeBtn),
+    el("div", { class: "report-controls" }, dayBox, rangeBox, genBtn),
     out,
   );
   genBtn.addEventListener("click", async () => {
-    if (!dateIn.value) return;
-    if (!confirm(`${t("confirm.generate_report_prefix")}${dateIn.value}${t("confirm.generate_report_suffix")}`)) return;
+    let path, body;
+    if (mode === "day") {
+      if (!dateIn.value) return;
+      if (!confirm(`${t("confirm.generate_report_prefix")}${dateIn.value}${t("confirm.generate_report_suffix")}`)) return;
+      path = "/api/hk/daily-report"; body = { date: dateIn.value };
+    } else {
+      let from = fromIn.value, to = toIn.value;
+      if (!from || !to) return;
+      if (from > to) [from, to] = [to, from];
+      const span = Math.round((Date.parse(to) - Date.parse(from < NJY_START ? NJY_START : from)) / 86400000) + 1;
+      if (span > 120) { out.replaceChildren(el("p", { class: "error" }, t("report.range_too_long"))); return; }
+      if (!confirm(t("confirm.generate_range").replace("{from}", from).replace("{to}", to))) return;
+      path = "/api/hk/range-report"; body = { from, to };
+    }
     genBtn.disabled = true;
     out.replaceChildren(loadingLine(t("report.loading")));
     try {
-      const r = await api("/api/hk/daily-report", {
-        method: "POST", body: JSON.stringify({ date: dateIn.value }),
-      });
-      out.replaceChildren(dailyReportView(r));
+      const r = await api(path, { method: "POST", body: JSON.stringify(body) });
+      out.replaceChildren(mode === "day" ? dailyReportView(r) : rangeReportView(r));
     } catch (err) {
       out.replaceChildren(el("p", { class: "error" }, err.message));
     } finally {
@@ -3271,6 +3319,83 @@ function dailyReportView(r) {
   return wrap;
 }
 
+// Period report: same sort / show / group controls as the daily view,
+// plus days active and last active per row. All client-side.
+function rangeReportView(r) {
+  const T = r.totals;
+  const fu = (n) => n;
+  const cell = (n, k) => el("div", { class: "cell" },
+    el("div", { class: "n" }, String(n)), el("div", { class: "k" }, k));
+  const generated = new Date(r.meta.generated_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+  const opt = (v, k, sel) => el("option", { value: v, selected: v === sel ? true : undefined }, t(k));
+  const sortSel = el("select", {},
+    opt("most", "report.sort_most", "most"), opt("least", "report.sort_least", "most"),
+    opt("name", "report.sort_name", "most"));
+  const showSel = el("select", {},
+    opt("all", "report.show_all", "all"), opt("active", "report.show_active", "all"),
+    opt("idle", "report.show_idle", "all"));
+  const groupChk = el("input", { type: "checkbox", id: "report-group", checked: true });
+  const tablesBox = el("div");
+  const state = () => ({ sort: sortSel.value, show: showSel.value, group: groupChk.checked });
+  const drawTables = () => tablesBox.replaceChildren(...reportTables(r, reportRows(r, state()), fu, T.days));
+  [sortSel, showSel, groupChk].forEach(c => c.addEventListener("change", drawTables));
+
+  const csvBtn = el("button", { class: "btn", type: "button" }, t("report.download_csv"));
+  csvBtn.addEventListener("click", () => downloadCsvText(`njy-report-${r.from}-to-${r.to}.csv`, rangeReportCsv(r, reportRows(r, state()))));
+  const printBtn = el("button", { class: "btn", type: "button" }, t("report.print"));
+  printBtn.addEventListener("click", () => window.print());
+
+  const wrap = el("div", { class: "report" },
+    el("p", { class: "hint" },
+      `${t("report.for_range")} ${r.from} → ${r.to} (${T.days} ${t("report.days_word")}) · `
+      + `${t("report.fresh")} ${generated} · ${r.meta.days_computed} ${t("report.days_computed")} · `
+      + `${t("report.reports_today")} ${r.meta.reports_today}`),
+    el("div", { class: "tally" },
+      cell(T.members_chanted, t("report.chant_marks")),
+      cell(`${T.coords_active} / ${T.coords_total}`, t("report.coords_active_range")),
+      cell(T.coords_total - T.coords_active, t("report.never_active")),
+    ),
+    el("div", { class: "tally" },
+      cell(`${T.leaders_active} / ${T.leaders_total}`, t("report.leaders_active_range")),
+      cell(T.follow_ups, t("report.follow_ups")),
+      cell(T.new_daily, t("report.new_daily")),
+    ),
+    r.follow_ups_tracked ? null : el("p", { class: "hint" }, t("report.range_follow_up_note")),
+    el("p", { class: "hint" }, t("report.range_note")),
+    el("div", { class: "report-actions" }, csvBtn, printBtn),
+    el("div", { class: "report-sort" },
+      el("label", {}, t("report.sort_by"), " ", sortSel),
+      el("label", {}, t("report.show"), " ", showSel),
+      el("label", {}, groupChk, " ", t("report.group_by_leader"))),
+    tablesBox,
+  );
+  drawTables();
+  return wrap;
+}
+
+function rangeReportCsv(r, v) {
+  const T = r.totals;
+  const line = (...cells) => cells.map(csvEscape).join(",");
+  const last = (x) => x.last_active || t("report.never");
+  const lines = [
+    line(t("report.title"), `${r.from} - ${r.to}`, `${T.days} ${t("report.days_word")}`),
+    line(t("report.chant_marks"), T.members_chanted),
+    line(t("report.coords_active_range"), `${T.coords_active} / ${T.coords_total}`),
+    line(t("report.never_active"), T.coords_total - T.coords_active),
+    line(t("report.leaders_active_range"), `${T.leaders_active} / ${T.leaders_total}`),
+    line(t("report.follow_ups"), T.follow_ups),
+    line(t("report.new_daily"), T.new_daily),
+    line(t("report.dropped"), T.dropped),
+    "",
+    line(t("report.col_leader"), t("report.col_coords_active"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions"), t("report.pts"), t("report.col_last_active")),
+    ...v.leaders.map(l => line(l.name, `${l.coords_active} / ${l.coords_total}`, l.days_active, l.chants, l.follow_ups, l.leader_actions, l.leader_points, last(l))),
+    "",
+    line(t("report.col_coord"), t("report.col_leader"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_last_active")),
+    ...v.coordGroups.flatMap(g => g.rows).map(c => line(c.name, c.leader_name, c.days_active, c.chants, c.follow_ups, last(c))),
+  ];
+  return "\ufeff" + lines.join("\r\n") + "\r\n";
+}
+
 // Applies the Director's sort/show/group choice to the report rows.
 // Returns { leaders, coordGroups: [{ leader, rows }] }; when not
 // grouping there is one group with leader = null.
@@ -3306,27 +3431,36 @@ function reportRows(r, { sort, show, group }) {
   return { leaders: allLeaders.filter(keep), coordGroups };
 }
 
-function reportTables(r, v, fu) {
-  const coordRow = (c) => ({ active: c.active, cells: [
-    c.name, c.leader_name || "—", c.chants, fu(c.follow_ups)] });
+// days = number of days in a period report; omitted for the daily report.
+function reportTables(r, v, fu, days) {
+  const period = days != null;
+  const last = (x) => x.last_active || t("report.never");
+  const coordRow = (c) => ({ active: c.active, cells: period
+    ? [c.name, c.leader_name || "—", `${c.days_active} / ${days}`, c.chants, fu(c.follow_ups), last(c)]
+    : [c.name, c.leader_name || "—", c.chants, fu(c.follow_ups)] });
   const coordRows = v.coordGroups.flatMap(g => g.leader
     ? [{ group: g.leader.coords_total != null
           ? `${g.leader.name} · ${g.leader.coords_active} / ${g.leader.coords_total} ${t("report.group_active")}`
           : g.leader.name },
        ...g.rows.map(coordRow)]
     : g.rows.map(coordRow));
+  const leaderHead = period
+    ? [t("report.col_leader"), t("report.col_coords_active"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions"), t("report.col_last_active")]
+    : [t("report.col_leader"), t("report.col_coords_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions")];
+  const leaderRow = (l) => ({ active: l.active, cells: period
+    ? [l.name, `${l.coords_active} / ${l.coords_total}`, `${l.days_active} / ${days}`, l.chants, fu(l.follow_ups),
+       `${l.leader_actions} (${l.leader_points} ${t("report.pts")})`, last(l)]
+    : [l.name, `${l.coords_active} / ${l.coords_total}`, l.chants, fu(l.follow_ups),
+       `${l.leader_actions} (${l.leader_points} ${t("report.pts")})`] });
+  const coordHead = period
+    ? [t("report.col_coord"), t("report.col_leader"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_last_active")]
+    : [t("report.col_coord"), t("report.col_leader"), t("report.col_chants"), t("report.col_follow_ups")];
   return [
     el("h3", {}, t("report.by_leader")),
-    v.leaders.length ? reportTable(
-      [t("report.col_leader"), t("report.col_coords_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions")],
-      v.leaders.map(l => ({ active: l.active, cells: [
-        l.name, `${l.coords_active} / ${l.coords_total}`, l.chants, fu(l.follow_ups),
-        `${l.leader_actions} (${l.leader_points} ${t("report.pts")})`] })))
+    v.leaders.length ? reportTable(leaderHead, v.leaders.map(leaderRow))
       : el("p", { class: "hint" }, t("report.none_match")),
     el("h3", {}, t("report.by_coord")),
-    coordRows.length ? reportTable(
-      [t("report.col_coord"), t("report.col_leader"), t("report.col_chants"), t("report.col_follow_ups")],
-      coordRows)
+    coordRows.length ? reportTable(coordHead, coordRows)
       : el("p", { class: "hint" }, t("report.none_match")),
   ];
 }
