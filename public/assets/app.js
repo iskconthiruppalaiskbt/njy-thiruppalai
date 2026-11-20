@@ -3309,11 +3309,14 @@ function dailyReportView(r) {
         el("li", {}, el("strong", {}, e.name), ` · ${e.attended} ${t("report.attended")}`))));
   }
   wrap.append(
-    el("div", { class: "report-sort" },
-      el("label", {}, t("report.sort_by"), " ", sortSel),
-      el("label", {}, t("report.show"), " ", showSel),
-      el("label", {}, groupChk, " ", t("report.group_by_leader"))),
-    tablesBox,
+    ...rankingSections(r),
+    el("details", { class: "report-full" },
+      el("summary", {}, t("report.full_list")),
+      el("div", { class: "report-sort" },
+        el("label", {}, t("report.sort_by"), " ", sortSel),
+        el("label", {}, t("report.show"), " ", showSel),
+        el("label", {}, groupChk, " ", t("report.group_by_leader"))),
+      tablesBox),
   );
   drawTables();
   return wrap;
@@ -3377,6 +3380,15 @@ function rangeReportView(r) {
   return wrap;
 }
 
+// Print shows everything: open the report's folded sections while
+// printing, then close the ones we opened.
+window.addEventListener("beforeprint", () => {
+  for (const d of document.querySelectorAll(".report details:not([open])")) { d.open = true; d.dataset.printOpened = "1"; }
+});
+window.addEventListener("afterprint", () => {
+  for (const d of document.querySelectorAll(".report details[data-print-opened]")) { d.open = false; delete d.dataset.printOpened; }
+});
+
 // Points earned in the report's days, using the app's own rules:
 // chant mark +10, follow-up +5 (follow-ups only once they were logged);
 // a leader adds their own action points on top of the team's.
@@ -3389,17 +3401,19 @@ function periodPts(r, x) {
 // and the names of coordinators who did nothing. All client-side.
 function rankingSections(r) {
   const T = r.totals;
+  const oneDay = T.days == null;   // daily report
+  const k1 = (k) => (oneDay ? `${k}_day` : k);
   const fmt = (n) => Number(n).toLocaleString("en-IN");
   const fill = (k, vars) => Object.entries(vars).reduce((a, [n, v]) => a.replaceAll(`{${n}}`, v), t(k));
-  const byPts = (a, b) => b._pts - a._pts || b.days_active - a.days_active || a.name.localeCompare(b.name);
+  const byPts = (a, b) => b._pts - a._pts || (b.days_active || 0) - (a.days_active || 0) || a.name.localeCompare(b.name);
   const coords = r.per_coord.map(c => ({ ...c, _pts: periodPts(r, c) })).sort(byPts);
   // Leaders with no coordinators have no team to rank.
   const leaders = r.per_leader.filter(l => l.coords_total > 0)
     .map(l => ({ ...l, _pts: periodPts(r, l) })).sort(byPts);
 
   const card = (x, rank, total, isLeader) => {
-    const facts = x._pts === 0 && !x.active ? [t("report.fact_none")] : [
-      fill("report.fact_days", { a: x.days_active, b: T.days }),
+    const facts = x._pts === 0 && !x.active ? [t(k1("report.fact_none"))] : [
+      ...(oneDay ? [] : [fill("report.fact_days", { a: x.days_active, b: T.days })]),
       ...(isLeader ? [fill("report.fact_team", { a: x.coords_active, b: x.coords_total })] : []),
       fill(isLeader ? "report.fact_team_chants" : "report.fact_chants", { n: fmt(x.chants) }),
       ...(r.follow_ups_tracked || x.follow_ups ? [fill("report.fact_fu", { n: fmt(x.follow_ups) })] : []),
@@ -3455,16 +3469,16 @@ function rankingSections(r) {
       el("summary", {}, t("report.explain_title")),
       el("ul", {}, ...["leader", "coord", "chant", "fu", "pts", "day"].map(k => el("li", {}, t(`report.explain_${k}`))))),
     el("div", { class: "rank-summary" },
-      el("p", {}, fill("report.summary_coords", { a: T.coords_active, b: T.coords_total, c: T.coords_total - T.coords_active })),
-      el("p", {}, fill("report.summary_leaders", { a: T.leaders_active, b: T.leaders_total }))),
+      el("p", {}, fill(k1("report.summary_coords"), { a: T.coords_active, b: T.coords_total, c: T.coords_total - T.coords_active })),
+      el("p", {}, fill(k1("report.summary_leaders"), { a: T.leaders_active, b: T.leaders_total }))),
     ...section("report.top_coords", coords, 5, false, false, "report.top_coords_hint"),
     ...section("report.top_leaders", leaders, 3, false, true, "report.top_leaders_hint"),
     ...section("report.least_leaders", leaders, 5, true, true, "report.least_hint"),
     ...section("report.least_coords", coords, 5, true, false, "report.least_hint"),
-    el("h3", { class: "rank-title low" }, fill("report.idle_title", { n: idle.length })),
+    el("h3", { class: "rank-title low" }, fill(k1("report.idle_title"), { n: idle.length })),
     idle.length
       ? el("ul", { class: "rank-idle" }, ...idleRows)
-      : el("p", { class: "hint" }, t("report.idle_none")),
+      : el("p", { class: "hint" }, t(k1("report.idle_none"))),
   ];
 }
 

@@ -1420,4 +1420,7 @@ a[download]:hover {
 @media print {
   .topbar, .nav, .lb-side, .lb-strip, .help-banner, .report-controls, .report-actions, .report-sort { display: none !important; }
   .report-table-wrap { overflow: visible; }
+  .rank-card { break-inside: avoid; }
+  .rank-title { break-after: avoid; }
+  .report-full > summary { display: none; }
 }
