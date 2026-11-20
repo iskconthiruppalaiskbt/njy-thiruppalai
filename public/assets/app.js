@@ -3380,15 +3380,6 @@ function rangeReportView(r) {
   return wrap;
 }
 
-// Print shows everything: open the report's folded sections while
-// printing, then close the ones we opened.
-window.addEventListener("beforeprint", () => {
-  for (const d of document.querySelectorAll(".report details:not([open])")) { d.open = true; d.dataset.printOpened = "1"; }
-});
-window.addEventListener("afterprint", () => {
-  for (const d of document.querySelectorAll(".report details[data-print-opened]")) { d.open = false; delete d.dataset.printOpened; }
-});
-
 // Points earned in the report's days, using the app's own rules:
 // chant mark +10, follow-up +5 (follow-ups only once they were logged);
 // a leader adds their own action points on top of the team's.
