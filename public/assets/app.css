@@ -1394,6 +1394,29 @@ a[download]:hover {
 .report-table tr.group td { font-weight: 600; background: var(--line); padding-top: .55rem; }
 .report-sort { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; margin: 1rem 0 .25rem; font-size: .9rem; }
 .report-sort select { padding: .35rem .5rem; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.rank-explain { background: var(--surface-sunk); border: 1px solid var(--line); border-radius: var(--radius); padding: .6rem .9rem; margin: 1rem 0; }
+.rank-explain summary { font-weight: 600; cursor: pointer; }
+.rank-explain ul { margin: .5rem 0 0; padding-left: 1.1rem; line-height: 1.5; }
+.rank-summary p { font-size: 1.05rem; margin: .35rem 0; }
+.rank-title { margin-top: 1.75rem !important; }
+.rank-list { display: grid; gap: .5rem; }
+.rank-card { display: grid; grid-template-columns: auto 1fr auto; gap: .75rem; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: .7rem .9rem; }
+.rank-card.zero { background: var(--surface-sunk); }
+.rank-no { font-family: var(--font-mono); font-size: 1.1rem; color: var(--muted); min-width: 2.2rem; }
+.rank-name { font-weight: 600; font-size: 1.05rem; }
+.rank-sub { color: var(--muted); font-size: .85rem; }
+.rank-facts { margin: .3rem 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: .15rem .9rem; font-size: .9rem; }
+.rank-pts { text-align: right; }
+.rank-pts b { display: block; font-family: var(--font-mono); font-size: 1.3rem; color: var(--peacock-deep); }
+.rank-pts span { font-size: .75rem; color: var(--muted); }
+.rank-idle { padding-left: 1.1rem; line-height: 1.6; }
+.report-full { margin-top: 2rem; }
+.report-full > summary { font-weight: 600; cursor: pointer; padding: .5rem 0; }
+@media (max-width: 520px) {
+  .rank-card { grid-template-columns: auto 1fr; }
+  .rank-pts { grid-column: 2; text-align: left; }
+  .rank-pts b { display: inline; margin-right: .3rem; }
+}
 @media print {
   .topbar, .nav, .lb-side, .lb-strip, .help-banner, .report-controls, .report-actions, .report-sort { display: none !important; }
   .report-table-wrap { overflow: visible; }

@@ -3361,17 +3361,111 @@ function rangeReportView(r) {
       cell(T.new_daily, t("report.new_daily")),
     ),
     r.follow_ups_tracked ? null : el("p", { class: "hint" }, t("report.range_follow_up_note")),
-    el("p", { class: "hint" }, t("report.range_note")),
-    el("p", { class: "hint" }, t("report.overall_note")),
     el("div", { class: "report-actions" }, csvBtn, printBtn),
-    el("div", { class: "report-sort" },
-      el("label", {}, t("report.sort_by"), " ", sortSel),
-      el("label", {}, t("report.show"), " ", showSel),
-      el("label", {}, groupChk, " ", t("report.group_by_leader"))),
-    tablesBox,
+    ...rankingSections(r),
+    el("details", { class: "report-full" },
+      el("summary", {}, t("report.full_list")),
+      el("p", { class: "hint" }, t("report.range_note")),
+      el("p", { class: "hint" }, t("report.overall_note")),
+      el("div", { class: "report-sort" },
+        el("label", {}, t("report.sort_by"), " ", sortSel),
+        el("label", {}, t("report.show"), " ", showSel),
+        el("label", {}, groupChk, " ", t("report.group_by_leader"))),
+      tablesBox),
   );
   drawTables();
   return wrap;
+}
+
+// Points earned in the report's days, using the app's own rules:
+// chant mark +10, follow-up +5 (follow-ups only once they were logged);
+// a leader adds their own action points on top of the team's.
+function periodPts(r, x) {
+  return x.chants * 10 + (r.follow_ups_tracked ? x.follow_ups * 5 : 0) + (x.leader_points || 0);
+}
+
+// Period report, written for non-technical readers: what the words mean,
+// a one-line summary, top / lowest coordinators and leaders as cards,
+// and the names of coordinators who did nothing. All client-side.
+function rankingSections(r) {
+  const T = r.totals;
+  const fmt = (n) => Number(n).toLocaleString("en-IN");
+  const fill = (k, vars) => Object.entries(vars).reduce((a, [n, v]) => a.replaceAll(`{${n}}`, v), t(k));
+  const byPts = (a, b) => b._pts - a._pts || b.days_active - a.days_active || a.name.localeCompare(b.name);
+  const coords = r.per_coord.map(c => ({ ...c, _pts: periodPts(r, c) })).sort(byPts);
+  // Leaders with no coordinators have no team to rank.
+  const leaders = r.per_leader.filter(l => l.coords_total > 0)
+    .map(l => ({ ...l, _pts: periodPts(r, l) })).sort(byPts);
+
+  const card = (x, rank, total, isLeader) => {
+    const facts = x._pts === 0 && !x.active ? [t("report.fact_none")] : [
+      fill("report.fact_days", { a: x.days_active, b: T.days }),
+      ...(isLeader ? [fill("report.fact_team", { a: x.coords_active, b: x.coords_total })] : []),
+      fill(isLeader ? "report.fact_team_chants" : "report.fact_chants", { n: fmt(x.chants) }),
+      ...(r.follow_ups_tracked || x.follow_ups ? [fill("report.fact_fu", { n: fmt(x.follow_ups) })] : []),
+      ...(isLeader && x.leader_actions ? [fill("report.fact_actions", { n: fmt(x.leader_actions) })] : []),
+    ];
+    return el("div", { class: "rank-card" + (x._pts === 0 ? " zero" : "") },
+      el("div", { class: "rank-no" }, `#${rank}`),
+      el("div", { class: "rank-body" },
+        el("div", { class: "rank-name" }, x.name),
+        el("div", { class: "rank-sub" }, isLeader
+          ? fill("report.role_leader", { n: x.coords_total })
+          : fill("report.role_coord", { l: x.leader_name || "—" })),
+        el("ul", { class: "rank-facts" }, ...facts.map(f => el("li", {}, f)))),
+      el("div", { class: "rank-pts" }, el("b", {}, fmt(x._pts)), el("span", {}, t("report.points_word"))));
+  };
+
+  // top: first n. lowest: last n, not already shown in top, lowest first.
+  const section = (titleKey, list, n, lowest, isLeader, hintKey) => {
+    let picked;
+    if (!lowest) picked = list.slice(0, n).map((x, i) => [x, i + 1]);
+    else {
+      const topIds = new Set(list.slice(0, isLeader ? 3 : 5).map(x => x.user_id));
+      picked = list.map((x, i) => [x, i + 1]).filter(([x]) => !topIds.has(x.user_id)).reverse().slice(0, n);
+    }
+    const zeros = list.filter(x => x._pts === 0).length;
+    const shownZeros = picked.filter(([x]) => x._pts === 0).length;
+    return [
+      el("h3", { class: "rank-title" + (lowest ? " low" : "") }, t(titleKey)),
+      el("p", { class: "hint" }, t(hintKey)),
+      picked.length
+        ? el("div", { class: "rank-list" }, ...picked.map(([x, rank]) => card(x, rank, list.length, isLeader)))
+        : el("p", { class: "hint" }, t("report.none_match")),
+      lowest && zeros > shownZeros
+        ? el("p", { class: "hint" }, fill(isLeader ? "report.more_zero_leaders" : "report.more_zero", { n: zeros - shownZeros }))
+        : null,
+    ];
+  };
+
+  // Coordinators who did nothing, grouped under their leader.
+  const idle = coords.filter(c => !c.active);
+  const idleBy = new Map();
+  for (const c of idle) {
+    const k = c.leader_name || t("report.no_leader");
+    if (!idleBy.has(k)) idleBy.set(k, []);
+    idleBy.get(k).push(c.name);
+  }
+  const idleRows = [...idleBy.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+    .map(([leader, names]) => el("li", {},
+      el("b", {}, `${leader} (${names.length}): `), names.sort((a, b) => a.localeCompare(b)).join(", ")));
+
+  return [
+    el("details", { class: "rank-explain", open: true },
+      el("summary", {}, t("report.explain_title")),
+      el("ul", {}, ...["leader", "coord", "chant", "fu", "pts", "day"].map(k => el("li", {}, t(`report.explain_${k}`))))),
+    el("div", { class: "rank-summary" },
+      el("p", {}, fill("report.summary_coords", { a: T.coords_active, b: T.coords_total, c: T.coords_total - T.coords_active })),
+      el("p", {}, fill("report.summary_leaders", { a: T.leaders_active, b: T.leaders_total }))),
+    ...section("report.top_coords", coords, 5, false, false, "report.top_coords_hint"),
+    ...section("report.top_leaders", leaders, 3, false, true, "report.top_leaders_hint"),
+    ...section("report.least_leaders", leaders, 5, true, true, "report.least_hint"),
+    ...section("report.least_coords", coords, 5, true, false, "report.least_hint"),
+    el("h3", { class: "rank-title low" }, fill("report.idle_title", { n: idle.length })),
+    idle.length
+      ? el("ul", { class: "rank-idle" }, ...idleRows)
+      : el("p", { class: "hint" }, t("report.idle_none")),
+  ];
 }
 
 function rangeReportCsv(r, v) {
@@ -3388,11 +3482,11 @@ function rangeReportCsv(r, v) {
     line(t("report.new_daily"), T.new_daily),
     line(t("report.dropped"), T.dropped),
     "",
-    line(t("report.col_leader"), t("report.col_coords_active"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions"), t("report.pts"), t("report.col_overall"), t("report.col_last_active")),
-    ...v.leaders.map(l => line(l.name, `${l.coords_active} / ${l.coords_total}`, l.days_active, l.chants, l.follow_ups, l.leader_actions, l.leader_points, l.overall_pts ?? "", last(l))),
+    line(t("report.col_leader"), t("report.col_coords_active"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions"), t("report.pts"), t("report.col_period_pts"), t("report.col_overall"), t("report.col_last_active")),
+    ...v.leaders.map(l => line(l.name, `${l.coords_active} / ${l.coords_total}`, l.days_active, l.chants, l.follow_ups, l.leader_actions, l.leader_points, periodPts(r, l), l.overall_pts ?? "", last(l))),
     "",
-    line(t("report.col_coord"), t("report.col_leader"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_overall"), t("report.col_last_active")),
-    ...v.coordGroups.flatMap(g => g.rows).map(c => line(c.name, c.leader_name, c.days_active, c.chants, c.follow_ups, c.overall_pts ?? "", last(c))),
+    line(t("report.col_coord"), t("report.col_leader"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_period_pts"), t("report.col_overall"), t("report.col_last_active")),
+    ...v.coordGroups.flatMap(g => g.rows).map(c => line(c.name, c.leader_name, c.days_active, c.chants, c.follow_ups, periodPts(r, c), c.overall_pts ?? "", last(c))),
   ];
   return "\ufeff" + lines.join("\r\n") + "\r\n";
 }
@@ -3401,8 +3495,7 @@ function rangeReportCsv(r, v) {
 // Returns { leaders, coordGroups: [{ leader, rows }] }; when not
 // grouping there is one group with leader = null.
 function reportRows(r, { sort, show, group }) {
-  const fuOn = r.follow_ups_tracked;
-  const score = (x) => x.chants + (fuOn ? x.follow_ups : 0) + (x.leader_actions || 0);
+  const score = (x) => periodPts(r, x);
   const byName = (a, b) => a.name.localeCompare(b.name);
   const cmp = sort === "least" ? (a, b) => score(a) - score(b) || byName(a, b)
     : sort === "name" ? byName
@@ -3439,7 +3532,7 @@ function reportTables(r, v, fu, days) {
   const last = (x) => x.last_active || t("report.never");
   const ov = (x) => (x.overall_pts == null ? "—" : x.overall_pts);
   const coordRow = (c) => ({ active: c.active, cells: period
-    ? [c.name, c.leader_name || "—", `${c.days_active} / ${days}`, c.chants, fu(c.follow_ups), ov(c), last(c)]
+    ? [c.name, c.leader_name || "—", `${c.days_active} / ${days}`, c.chants, fu(c.follow_ups), periodPts(r, c), ov(c), last(c)]
     : [c.name, c.leader_name || "—", c.chants, fu(c.follow_ups)] });
   const coordRows = v.coordGroups.flatMap(g => g.leader
     ? [{ group: g.leader.coords_total != null
@@ -3448,15 +3541,15 @@ function reportTables(r, v, fu, days) {
        ...g.rows.map(coordRow)]
     : g.rows.map(coordRow));
   const leaderHead = period
-    ? [t("report.col_leader"), t("report.col_coords_active"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions"), t("report.col_overall"), t("report.col_last_active")]
+    ? [t("report.col_leader"), t("report.col_coords_active"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions"), t("report.col_period_pts"), t("report.col_overall"), t("report.col_last_active")]
     : [t("report.col_leader"), t("report.col_coords_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_leader_actions")];
   const leaderRow = (l) => ({ active: l.active, cells: period
     ? [l.name, `${l.coords_active} / ${l.coords_total}`, `${l.days_active} / ${days}`, l.chants, fu(l.follow_ups),
-       `${l.leader_actions} (${l.leader_points} ${t("report.pts")})`, ov(l), last(l)]
+       `${l.leader_actions} (${l.leader_points} ${t("report.pts")})`, periodPts(r, l), ov(l), last(l)]
     : [l.name, `${l.coords_active} / ${l.coords_total}`, l.chants, fu(l.follow_ups),
        `${l.leader_actions} (${l.leader_points} ${t("report.pts")})`] });
   const coordHead = period
-    ? [t("report.col_coord"), t("report.col_leader"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_overall"), t("report.col_last_active")]
+    ? [t("report.col_coord"), t("report.col_leader"), t("report.col_days_active"), t("report.col_chants"), t("report.col_follow_ups"), t("report.col_period_pts"), t("report.col_overall"), t("report.col_last_active")]
     : [t("report.col_coord"), t("report.col_leader"), t("report.col_chants"), t("report.col_follow_ups")];
   return [
     el("h3", {}, t("report.by_leader")),
